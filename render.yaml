@@ -1,8 +1,8 @@
 services:
   - type: web
-    name: npm install && npm run build
+    name: hotmart-webhook-api
     env: node
-    buildCommand: npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV

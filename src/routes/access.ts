@@ -1,11 +1,11 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { validateApiKey } from '../utils/crypto';
 import { AccessValidationResponse } from '../types';
 
 const router = Router();
 
-router.get('/validate', async (req, res) => {
+router.get('/validate', async (req: Request, res: Response) => {
   try {
     // Validar API Key
     const apiKey = req.headers['x-api-key'] as string;

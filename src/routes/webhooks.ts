@@ -7,7 +7,7 @@ import { generateIdempotencyKey, validateHotmartToken } from '../utils/crypto';
 const router = Router();
 
 // Middleware para processar raw body e armazenar o corpo original
-router.use('/hotmart', (req: Request, res: Response, next) => {
+router.use('/hotmart', (req: Request, res: Response, next: import('express').NextFunction) => {
   if (req.method === 'POST') {
     try {
       const isBuffer = Buffer.isBuffer(req.body);
