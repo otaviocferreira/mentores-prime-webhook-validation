@@ -22,18 +22,49 @@ router.get('/validate', async (req: Request, res: Response) => {
       });
     }
 
-    // Buscar acesso do cliente ao mentor
+    const emailStr = email.toString().toLowerCase();
+    const mentorStr = mentor.toString();
+
+    // Prioridade: checar entitlements (lifetime/manual)
+    const { data: entitlements, error: entError } = await supabase
+      .from('entitlements')
+      .select('mentor_slug, expires_at, active')
+      .eq('email', emailStr)
+      .eq('active', true)
+      .in('mentor_slug', [mentorStr, '*']);
+
+    if (entError) {
+      console.error('Error fetching entitlements:', entError);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (entitlements && entitlements.length > 0) {
+      const now = new Date();
+      const valid = entitlements.find(e => !e.expires_at || new Date(e.expires_at) >= now);
+      if (valid) {
+        const response: AccessValidationResponse = {
+          allowed: true,
+          mentor: mentorStr,
+          expires_at: valid.expires_at || null,
+          source: 'manual',
+          plan: null
+        };
+        return res.json(response);
+      }
+    }
+
+    // Buscar acesso do cliente ao mentor (Hotmart)
     // Primeiro buscar o customer pelo email
     const { data: customer, error: customerError } = await supabase
       .from('customers')
       .select('id')
-      .eq('email', email.toString().toLowerCase())
+      .eq('email', emailStr)
       .single();
 
     if (customerError || !customer) {
       const response: AccessValidationResponse = {
         allowed: false,
-        mentor: mentor.toString(),
+        mentor: mentorStr,
         expires_at: null,
         source: 'hotmart',
         plan: null
@@ -46,7 +77,7 @@ router.get('/validate', async (req: Request, res: Response) => {
       .from('mentor_access')
       .select('*')
       .eq('customer_id', customer.id)
-      .eq('mentor_slug', mentor.toString())
+      .eq('mentor_slug', mentorStr)
       .single();
 
     if (error && error.code !== 'PGRST116') { // PGRST116 = not found
@@ -58,7 +89,7 @@ router.get('/validate', async (req: Request, res: Response) => {
     if (!access || (access.expires_at && new Date(access.expires_at) < new Date())) {
       const response: AccessValidationResponse = {
         allowed: false,
-        mentor: mentor.toString(),
+        mentor: mentorStr,
         expires_at: null,
         source: 'hotmart',
         plan: null
