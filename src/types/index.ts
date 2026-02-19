@@ -92,6 +92,7 @@ export interface HotmartEvent {
       subscriber: {
         code: string; // ID da assinatura
       };
+      next_charge_date?: number; // Timestamp em milissegundos
     };
     affiliates?: Array<{
       affiliate_code: string;
@@ -111,7 +112,7 @@ export interface HotmartEvent {
 }
 
 // Novos tipos baseados na estrutura SQL do usuário
-export type AccessStatus = 'ACTIVE' | 'CANCELED' | 'REFUNDED' | 'CHARGEBACK' | 'EXPIRED';
+export type AccessStatus = 'ACTIVE' | 'CANCELED' | 'REFUNDED' | 'CHARGEBACK' | 'PAST_DUE' | 'SUSPENDED' | 'TRIAL' | 'UNKNOWN';
 
 export interface Customer {
   id: string;
@@ -163,4 +164,5 @@ export interface AccessValidationResponse {
   expires_at: string | null;
   source: string;
   plan: string | null;
+  products?: number[];
 }

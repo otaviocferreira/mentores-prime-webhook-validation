@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { supabase } from '../config/supabase';
-import { HotmartEvent, HotmartEventLedger } from '../types';
+import { HotmartEvent } from '../types';
 import { generateIdempotencyKey, validateHotmartToken } from '../utils/crypto';
 
 const router = Router();
@@ -63,7 +63,7 @@ router.post('/hotmart', async (req: Request, res: Response) => {
 
     // Verificar se já processamos esse evento (duplicado)
     const { data: existingEvent } = await supabase
-      .from('hotmart_event_ledger')
+      .from('hotmart_event_ledger_min')
       .select('id, processing_status')
       .eq('idempotency_key', idempotencyKey)
       .single();
@@ -78,7 +78,7 @@ router.post('/hotmart', async (req: Request, res: Response) => {
       });
     }
 
-    // Tentar processar o evento com a função transacional
+    // Tentar processar o evento
     try {
       const result = await processHotmartEvent(event, idempotencyKey);
       
@@ -133,13 +133,16 @@ async function processHotmartEvent(event: HotmartEvent, idempotencyKey: string):
     // Mapear status da Hotmart para status interno
     const mappedStatus = mapHotmartStatus(event.event, event.data.purchase?.status);
     
-    // Determinar mentor_slugs baseado no produto/plano (regra de negócio)
-    const mentorSlugs = determineMentorSlugs(event);
-    
-    // Calcular data de expiração (1 ano para ACTIVE, null para cancelamentos)
-    const expiresAt = mappedStatus === 'ACTIVE' ? 
-      new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() : 
-      null;
+    // Calcular data de expiração (1 ano para ACTIVE, ou usar next_charge_date se disponível)
+    let expiresAt: string | null = null;
+    if (mappedStatus === 'ACTIVE') {
+      const nextChargeDate = event.data.subscription?.next_charge_date;
+      if (nextChargeDate) {
+        expiresAt = new Date(nextChargeDate).toISOString();
+      } else {
+        expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+      }
+    }
 
     // Obter referência da Hotmart (transaction ou subscriber code)
     const hotmartReference = event.data.purchase?.transaction || 
@@ -150,25 +153,117 @@ async function processHotmartEvent(event: HotmartEvent, idempotencyKey: string):
       console.warn(`No hotmart reference found for event ${idempotencyKey}, using email as fallback`);
     }
 
-    // Chamar função SQL transacional do usuário
-    const { data, error } = await supabase
-      .rpc('process_hotmart_event', {
-        p_idempotency_key: idempotencyKey,
-        p_event_type: event.event,
-        p_hotmart_reference: hotmartReference,
-        p_buyer_email: event.data.buyer.email,
-        p_status: mappedStatus,
-        p_mentor_slugs: mentorSlugs,
-        p_expires_at: expiresAt,
-        p_payload: event
-      });
+    // Extrair dados do produto
+    const hpIdNum = event.data.product?.id;
+    if (hpIdNum === undefined || hpIdNum === null) {
+      throw new Error('Missing product ID from Hotmart event');
+    }
+    const hotmartProductId = parseInt(String(hpIdNum), 10);
+    const ucode = event.data.product?.ucode || `unknown-${hotmartProductId}`;
+    const productName = event.data.product?.name || `Produto Hotmart ${hotmartProductId}`;
 
-    if (error) {
-      throw error;
+    const buyerEmail = event.data.buyer.email.toLowerCase();
+
+    // Upsert customer
+    const { error: upsertCustomerError } = await supabase
+      .from('customers')
+      .upsert({ email: buyerEmail }, { onConflict: 'email' });
+    if (upsertCustomerError) throw upsertCustomerError;
+
+    const { data: customerRow, error: fetchCustomerError } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('email', buyerEmail)
+      .single();
+    if (fetchCustomerError || !customerRow) throw fetchCustomerError || new Error('Customer not found after upsert');
+
+    // Upsert product
+    const { error: upsertProductError } = await supabase
+      .from('hotmart_products')
+      .upsert({
+        hotmart_product_id: hotmartProductId,
+        ucode,
+        name: productName,
+        status: 'ACTIVE',
+        is_subscription: true,
+        active: true,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'hotmart_product_id' });
+    if (upsertProductError) throw upsertProductError;
+
+    // Upsert customer_products
+    const { data: existingCp, error: fetchCpError } = await supabase
+      .from('customer_products')
+      .select('id, expires_at')
+      .eq('customer_id', customerRow.id)
+      .eq('hotmart_product_id', hotmartProductId)
+      .single();
+    if (fetchCpError && fetchCpError.code !== 'PGRST116') throw fetchCpError;
+
+    const nowIso = new Date().toISOString();
+    if (existingCp) {
+      const newExpires = mappedStatus === 'ACTIVE' ? expiresAt : (existingCp.expires_at || nowIso);
+      const { error: updateCpError } = await supabase
+        .from('customer_products')
+        .update({
+          hotmart_reference: hotmartReference,
+          status: mappedStatus,
+          expires_at: newExpires,
+          updated_at: nowIso
+        })
+        .eq('id', existingCp.id);
+      if (updateCpError) throw updateCpError;
+    } else {
+      const { error: insertCpError } = await supabase
+        .from('customer_products')
+        .insert({
+          customer_id: customerRow.id,
+          hotmart_product_id: hotmartProductId,
+          hotmart_reference: hotmartReference,
+          status: mappedStatus,
+          expires_at: mappedStatus === 'ACTIVE' ? expiresAt : nowIso,
+          created_at: nowIso,
+          updated_at: nowIso
+        });
+      if (insertCpError) throw insertCpError;
     }
 
-    console.log(`Event ${idempotencyKey} processed successfully:`, data);
-    return data;
+    // Registrar no ledger mínimo
+    const orderDate = event.data.purchase?.order_date ? new Date(event.data.purchase.order_date).toISOString() : null;
+    const approvedDate = event.data.purchase?.approved_date ? new Date(event.data.purchase.approved_date).toISOString() : null;
+    const nextCharge = event.data.subscription?.next_charge_date ? new Date(event.data.subscription.next_charge_date).toISOString() : null;
+
+    const { error: insertLedgerError } = await supabase
+      .from('hotmart_event_ledger_min')
+      .insert({
+        idempotency_key: idempotencyKey,
+        event_type: event.event,
+        hotmart_reference: hotmartReference,
+        buyer_email: buyerEmail,
+        product_id: String(hotmartProductId),
+        offer_code: event.data.purchase?.offer?.code || null,
+        plan_id: event.data.subscription?.plan?.id ? String(event.data.subscription.plan.id) : null,
+        purchase_status: event.data.purchase?.status || null,
+        subscription_status: event.data.subscription?.status || null,
+        order_date: orderDate,
+        approved_date: approvedDate,
+        next_charge_date: nextCharge,
+        processing_status: 'PROCESSED',
+        processed_at: nowIso
+      });
+    if (insertLedgerError) throw insertLedgerError;
+
+    const result = {
+      status: 'processed',
+      customer_id: customerRow.id,
+      hotmart_product_id: hotmartProductId,
+      hotmart_reference: hotmartReference,
+      mapped_status: mappedStatus,
+      expires_at: expiresAt
+    };
+
+    console.log(`Event ${idempotencyKey} processed successfully:`, result);
+    return result;
 
   } catch (error) {
     console.error(`Error processing event ${idempotencyKey}:`, error);
@@ -176,62 +271,18 @@ async function processHotmartEvent(event: HotmartEvent, idempotencyKey: string):
   }
 }
 
-// Função para mapear eventos Hotmart para status internos
-function mapHotmartStatus(eventType: string, purchaseStatus: string): 'ACTIVE' | 'CANCELED' | 'REFUNDED' | 'CHARGEBACK' | 'EXPIRED' {
+// Função para mapear eventos Hotmart para status internos (novo modelo)
+function mapHotmartStatus(eventType: string, purchaseStatus: string): 'ACTIVE' | 'CANCELED' | 'REFUNDED' | 'CHARGEBACK' | 'PAST_DUE' | 'SUSPENDED' | 'TRIAL' | 'UNKNOWN' {
   if (eventType === 'PURCHASE_APPROVED' && purchaseStatus === 'APPROVED') return 'ACTIVE';
   if (eventType === 'PURCHASE_CANCELED' || purchaseStatus === 'CANCELED') return 'CANCELED';
   if (eventType === 'PURCHASE_REFUNDED' || purchaseStatus === 'REFUNDED') return 'REFUNDED';
   if (eventType === 'PURCHASE_PROTEST' || purchaseStatus === 'DISPUTE') return 'CHARGEBACK';
-  if (eventType === 'SUBSCRIPTION_EXPIRED') return 'EXPIRED';
-  return 'CANCELED'; // Default para casos não mapeados
+  if (eventType === 'SUBSCRIPTION_EXPIRED') return 'PAST_DUE';
+  if (eventType === 'SUBSCRIPTION_SUSPENDED') return 'SUSPENDED';
+  if (eventType === 'SUBSCRIPTION_TRIAL') return 'TRIAL';
+  return 'UNKNOWN'; // Default para casos não mapeados
 }
 
-// Função para determinar quais mentores liberar baseado no produto/plano
-function determineMentorSlugs(event: HotmartEvent): string[] {
-  // ESTRATÉGIA ATUAL: Um produto só libera acesso a TODOS os mentores
-  // Futuramente, quando tiver trilhas específicas, modificar aqui
-  
-  const slugs: string[] = [];
-  
-  // Por enquanto, liberar acesso a todos os mentores disponíveis
-  // Isso permite que o GPT valide acesso a qualquer mentor
-  const allMentors = [
-    'git',
-    'logica',
-    'sql',
-    'nosql',
-    'fundamentos-dados',
-    'python',
-    'python-data',
-    'java',
-    'spring',
-    'spring-boot',
-    'django',
-    'html-css',
-    'php',
-    'laravel',
-    'javascript',
-    'typescript',
-    'nodejs',
-    'csharp',
-    'dotnet-backend',
-    'react',
-    'angular',
-    'javascript-web',
-    'bootstrap',
-    'wordpress',
-    'deploy-web'
-  ];
-  
-  // Para compras aprovadas, liberar todos os mentores
-  const mappedStatus = mapHotmartStatus(event.event, event.data.purchase?.status);
-  if (mappedStatus === 'ACTIVE') {
-    return allMentors;
-  }
-  
-  // Para status não ativos (cancelado, expirado, etc.), não liberar nenhum mentor
-  // A função SQL process_hotmart_event vai tratar o status corretamente
-  return slugs;
-}
+
 
 export default router;

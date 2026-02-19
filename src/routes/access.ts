@@ -25,36 +25,7 @@ router.get('/validate', async (req: Request, res: Response) => {
     const emailStr = email.toString().toLowerCase();
     const mentorStr = mentor.toString();
 
-    // Prioridade: checar entitlements (lifetime/manual)
-    const { data: entitlements, error: entError } = await supabase
-      .from('entitlements')
-      .select('mentor_slug, expires_at, active')
-      .eq('email', emailStr)
-      .eq('active', true)
-      .in('mentor_slug', [mentorStr, '*']);
-
-    if (entError) {
-      console.error('Error fetching entitlements:', entError);
-      return res.status(500).json({ error: 'Database error' });
-    }
-
-    if (entitlements && entitlements.length > 0) {
-      const now = new Date();
-      const valid = entitlements.find(e => !e.expires_at || new Date(e.expires_at) >= now);
-      if (valid) {
-        const response: AccessValidationResponse = {
-          allowed: true,
-          mentor: mentorStr,
-          expires_at: valid.expires_at || null,
-          source: 'manual',
-          plan: null
-        };
-        return res.json(response);
-      }
-    }
-
-    // Buscar acesso do cliente ao mentor (Hotmart)
-    // Primeiro buscar o customer pelo email
+    // Buscar customer pelo email
     const { data: customer, error: customerError } = await supabase
       .from('customers')
       .select('id')
@@ -66,53 +37,80 @@ router.get('/validate', async (req: Request, res: Response) => {
         allowed: false,
         mentor: mentorStr,
         expires_at: null,
-        source: 'hotmart',
+        source: 'product',
         plan: null
       };
       return res.json(response);
     }
 
-    // Agora buscar o mentor_access pelo customer_id
-    const { data: access, error } = await supabase
-      .from('mentor_access')
-      .select('*')
+    // Buscar customer_products ativos (status ACTIVE e não expirados)
+    const { data: customerProducts, error: cpError } = await supabase
+      .from('customer_products')
+      .select('hotmart_product_id, expires_at')
       .eq('customer_id', customer.id)
-      .eq('mentor_slug', mentorStr)
-      .single();
+      .eq('status', 'ACTIVE');
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = not found
-      console.error('Error fetching access:', error);
+    if (cpError) {
+      console.error('Error fetching customer_products:', cpError);
       return res.status(500).json({ error: 'Database error' });
     }
 
-    // Se não encontrou acesso ou está expirado
-    if (!access || (access.expires_at && new Date(access.expires_at) < new Date())) {
+    const now = new Date();
+    const activeProducts = (customerProducts || []).filter(cp => {
+      if (!cp.expires_at) return true;
+      return new Date(cp.expires_at) > now;
+    });
+
+    const activeProductIds = activeProducts.map(cp => cp.hotmart_product_id);
+
+    if (activeProductIds.length === 0) {
       const response: AccessValidationResponse = {
         allowed: false,
         mentor: mentorStr,
         expires_at: null,
-        source: 'hotmart',
-        plan: null
+        source: 'product',
+        plan: null,
+        products: []
       };
       return res.json(response);
     }
 
-    // Buscar subscription para obter o plano
-    const { data: subscription } = await supabase
-      .from('subscriptions')
-      .select('plan_code')
-      .eq('customer_id', customer.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+    // Verificar mapeamentos de mentores para os produtos ativos
+    const { data: mappedMentors, error: pmError } = await supabase
+      .from('product_mentor_map')
+      .select('hotmart_product_id')
+      .in('hotmart_product_id', activeProductIds)
+      .eq('mentor_slug', mentorStr);
 
-    // Retornar dados de acesso no formato especificado
+    if (pmError) {
+      console.error('Error fetching product_mentor_map:', pmError);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    const allowedProductIds = (mappedMentors || []).map(m => m.hotmart_product_id);
+    const allowed = allowedProductIds.length > 0;
+
+    let expiresAt: string | null = null;
+    if (allowed) {
+      const relevantProducts = activeProducts.filter(cp => allowedProductIds.includes(cp.hotmart_product_id));
+      const hasLifetime = relevantProducts.some(cp => !cp.expires_at);
+      if (hasLifetime) {
+        expiresAt = null;
+      } else {
+        const maxDate = relevantProducts
+          .map(cp => new Date(cp.expires_at as string))
+          .reduce((a, b) => (a > b ? a : b));
+        expiresAt = maxDate.toISOString();
+      }
+    }
+
     const response: AccessValidationResponse = {
-      allowed: access.allowed,
-      mentor: access.mentor_slug,
-      expires_at: access.expires_at,
-      source: access.source,
-      plan: subscription?.plan_code || null
+      allowed,
+      mentor: mentorStr,
+      expires_at: expiresAt,
+      source: 'product',
+      plan: null,
+      products: allowedProductIds
     };
 
     res.json(response);
