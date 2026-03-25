@@ -64,9 +64,11 @@ export interface HotmartEvent {
       };
       approved_date?: number; // Timestamp em milissegundos
       order_date?: number; // Timestamp em milissegundos
+      date_next_charge?: number; // Timestamp em milissegundos
       offer?: {
         code: string;
         coupon_code?: string;
+        description?: string;
       };
       order_bump?: {
         is_order_bump: boolean;
@@ -82,6 +84,9 @@ export interface HotmartEvent {
       sckPaymentLink?: string;
       is_funnel?: boolean;
       business_model?: string;
+      invoice_by?: string;
+      subscription_anticipation_purchase?: boolean;
+      recurrence_number?: number;
     };
     subscription?: {
       status: string;

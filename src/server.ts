@@ -2,52 +2,50 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import { createClient } from '@supabase/supabase-js';
 import webhookRoutes from './routes/webhooks';
 import accessRoutes from './routes/access';
 
 dotenv.config();
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+export function createApp() {
+  const app = express();
 
-// Middlewares
-app.use(helmet());
-app.use(cors());
+  app.use(helmet());
+  app.use(cors());
+  app.use('/webhooks', express.raw({ type: 'application/json', limit: '10mb' }));
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true }));
 
-// Raw body middleware for webhook (before JSON parser)
-app.use('/webhooks', express.raw({ type: 'application/json', limit: '10mb' }));
-
-// JSON parser for other routes
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
-
-// Health check
-app.get('/health', (req: express.Request, res: express.Response) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// Routes
-app.use('/webhooks', webhookRoutes);
-app.use('/access', accessRoutes);
-
-// Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Error:', err);
-  res.status(500).json({ 
-    error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+  app.get('/health', (_req: express.Request, res: express.Response) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
-});
 
-// 404 handler
-app.use('*', (req: express.Request, res: express.Response) => {
-  res.status(404).json({ error: 'Route not found' });
-});
+  app.use('/webhooks', webhookRoutes);
+  app.use('/access', accessRoutes);
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error('Error:', err);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+    });
+  });
+
+  app.use('*', (_req: express.Request, res: express.Response) => {
+    res.status(404).json({ error: 'Route not found' });
+  });
+
+  return app;
+}
+
+const app = createApp();
+
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  });
+}
 
 export default app;
