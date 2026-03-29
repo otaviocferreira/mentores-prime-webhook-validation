@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import webhookRoutes from './routes/webhooks';
 import accessRoutes from './routes/access';
+import mentorsRoutes from './routes/mentors';
 
 dotenv.config();
 
@@ -22,6 +23,7 @@ export function createApp() {
 
   app.use('/webhooks', webhookRoutes);
   app.use('/access', accessRoutes);
+  app.use('/mentors', mentorsRoutes);
 
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error('Error:', err);
