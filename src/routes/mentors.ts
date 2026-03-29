@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+﻿import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { validateApiKey } from '../utils/crypto';
 import {
@@ -28,6 +28,9 @@ import {
   LessonProgressInsertInput,
   CheckpointProgressInsertInput,
   ProjectProgressInsertInput,
+  LessonProgressUpdateInput,
+  CheckpointProgressUpdateInput,
+  ProjectProgressUpdateInput,
   recordMentorProgress
 } from '../services/progress.service';
 
@@ -336,6 +339,7 @@ const mentorsDeps: MentorsRouterDeps = {
       .from('customer_lesson_progress')
       .insert({
         customer_id: input.customer_id,
+        mentor_id: input.mentor_id,
         lesson_id: lessonId,
         status: input.status,
         first_opened_at: input.first_opened_at,
@@ -352,11 +356,12 @@ const mentorsDeps: MentorsRouterDeps = {
   async updateLessonProgress(
     lessonId: string,
     customerId: string,
-    input: LessonProgressStateRow
+    input: LessonProgressUpdateInput
   ): Promise<LessonProgressStateRow> {
     const { data, error } = await supabase
       .from('customer_lesson_progress')
       .update({
+        mentor_id: input.mentor_id,
         status: input.status,
         first_opened_at: input.first_opened_at,
         last_opened_at: input.last_opened_at,
@@ -379,6 +384,7 @@ const mentorsDeps: MentorsRouterDeps = {
       .from('customer_checkpoint_progress')
       .insert({
         customer_id: input.customer_id,
+        mentor_id: input.mentor_id,
         checkpoint_id: checkpointId,
         status: input.status,
         first_opened_at: input.first_opened_at,
@@ -398,11 +404,12 @@ const mentorsDeps: MentorsRouterDeps = {
   async updateCheckpointProgress(
     checkpointId: string,
     customerId: string,
-    input: CheckpointProgressStateRow
+    input: CheckpointProgressUpdateInput
   ): Promise<CheckpointProgressStateRow> {
     const { data, error } = await supabase
       .from('customer_checkpoint_progress')
       .update({
+        mentor_id: input.mentor_id,
         status: input.status,
         first_opened_at: input.first_opened_at,
         last_opened_at: input.last_opened_at,
@@ -425,6 +432,7 @@ const mentorsDeps: MentorsRouterDeps = {
       .from('customer_project_progress')
       .insert({
         customer_id: input.customer_id,
+        mentor_id: input.mentor_id,
         project_id: projectId,
         status: input.status,
         first_opened_at: input.first_opened_at,
@@ -445,11 +453,12 @@ const mentorsDeps: MentorsRouterDeps = {
   async updateProjectProgress(
     projectId: string,
     customerId: string,
-    input: ProjectProgressStateRow
+    input: ProjectProgressUpdateInput
   ): Promise<ProjectProgressStateRow> {
     const { data, error } = await supabase
       .from('customer_project_progress')
       .update({
+        mentor_id: input.mentor_id,
         status: input.status,
         first_opened_at: input.first_opened_at,
         last_opened_at: input.last_opened_at,
@@ -470,3 +479,5 @@ const mentorsDeps: MentorsRouterDeps = {
 };
 
 export default createMentorsRouter();
+
+

@@ -1,13 +1,13 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import { AddressInfo } from 'node:net';
 import { createMentorsRouter } from '../routes/mentors';
 import { CatalogResponse } from '../services/catalog.service';
 
-type LessonRow = { status: 'NOT_STARTED' | 'OPENED' | 'IN_PROGRESS' | 'COMPLETED'; first_opened_at: string | null; last_opened_at: string | null; completed_at: string | null };
-type CheckpointRow = { status: 'NOT_STARTED' | 'OPENED' | 'SUBMITTED' | 'APPROVED' | 'REJECTED'; first_opened_at: string | null; last_opened_at: string | null; submitted_at: string | null; approved_at: string | null; rejected_at: string | null; evaluator_note: string | null };
-type ProjectRow = { status: 'NOT_STARTED' | 'OPENED' | 'IN_PROGRESS' | 'SUBMITTED' | 'APPROVED' | 'REJECTED'; first_opened_at: string | null; last_opened_at: string | null; submitted_at: string | null; approved_at: string | null; rejected_at: string | null; delivery_url: string | null; evaluator_note: string | null };
+type LessonRow = { mentor_id: string; status: 'NOT_STARTED' | 'OPENED' | 'IN_PROGRESS' | 'COMPLETED'; first_opened_at: string | null; last_opened_at: string | null; completed_at: string | null };
+type CheckpointRow = { mentor_id: string; status: 'NOT_STARTED' | 'OPENED' | 'SUBMITTED' | 'APPROVED' | 'REJECTED'; first_opened_at: string | null; last_opened_at: string | null; submitted_at: string | null; approved_at: string | null; rejected_at: string | null; evaluator_note: string | null };
+type ProjectRow = { mentor_id: string; status: 'NOT_STARTED' | 'OPENED' | 'IN_PROGRESS' | 'SUBMITTED' | 'APPROVED' | 'REJECTED'; first_opened_at: string | null; last_opened_at: string | null; submitted_at: string | null; approved_at: string | null; rejected_at: string | null; delivery_url: string | null; evaluator_note: string | null };
 
 function createDeps(options?: { emptyCatalog?: boolean; brokenCatalog?: boolean; withEmptyNodes?: boolean }): any {
   const lessonStore = new Map<string, LessonRow>();
@@ -121,37 +121,37 @@ function createDeps(options?: { emptyCatalog?: boolean; brokenCatalog?: boolean;
     },
     async insertLessonProgress(lessonId: string, input: any) {
       const key = `${input.customer_id}:${lessonId}`;
-      const value = { status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, completed_at: input.completed_at } as LessonRow;
+      const value = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, completed_at: input.completed_at } as LessonRow;
       lessonStore.set(key, value);
       return value;
     },
     async updateLessonProgress(lessonId: string, customerId: string, input: any) {
       const key = `${customerId}:${lessonId}`;
-      const value = { status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, completed_at: input.completed_at } as LessonRow;
+      const value = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, completed_at: input.completed_at } as LessonRow;
       lessonStore.set(key, value);
       return value;
     },
     async insertCheckpointProgress(checkpointId: string, input: any) {
       const key = `${input.customer_id}:${checkpointId}`;
-      const value = { status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, evaluator_note: input.evaluator_note } as CheckpointRow;
+      const value = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, evaluator_note: input.evaluator_note } as CheckpointRow;
       checkpointStore.set(key, value);
       return value;
     },
     async updateCheckpointProgress(checkpointId: string, customerId: string, input: any) {
       const key = `${customerId}:${checkpointId}`;
-      const value = { status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, evaluator_note: input.evaluator_note } as CheckpointRow;
+      const value = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, evaluator_note: input.evaluator_note } as CheckpointRow;
       checkpointStore.set(key, value);
       return value;
     },
     async insertProjectProgress(projectId: string, input: any) {
       const key = `${input.customer_id}:${projectId}`;
-      const value = { status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, delivery_url: input.delivery_url, evaluator_note: input.evaluator_note } as ProjectRow;
+      const value = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, delivery_url: input.delivery_url, evaluator_note: input.evaluator_note } as ProjectRow;
       projectStore.set(key, value);
       return value;
     },
     async updateProjectProgress(projectId: string, customerId: string, input: any) {
       const key = `${customerId}:${projectId}`;
-      const value = { status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, delivery_url: input.delivery_url, evaluator_note: input.evaluator_note } as ProjectRow;
+      const value = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, delivery_url: input.delivery_url, evaluator_note: input.evaluator_note } as ProjectRow;
       projectStore.set(key, value);
       return value;
     }
@@ -190,9 +190,9 @@ test('GET /mentors/:mentorSlug/catalog retorna 401 sem API key valida', async ()
 
 test('GET /mentors/:mentorSlug/catalog retorna catalogo completo ordenado', async () => {
   const deps = createDeps();
-  deps.stores.lessonStore.set('customer-1:lesson-ini-1', { status: 'OPENED', first_opened_at: null, last_opened_at: null, completed_at: null });
-  deps.stores.checkpointStore.set('customer-1:checkpoint-int-1', { status: 'APPROVED', first_opened_at: null, last_opened_at: null, submitted_at: null, approved_at: '2026-03-29T12:00:00.000Z', rejected_at: null, evaluator_note: null });
-  deps.stores.projectStore.set('customer-1:project-adv-1', { status: 'SUBMITTED', first_opened_at: null, last_opened_at: null, submitted_at: null, approved_at: null, rejected_at: null, delivery_url: null, evaluator_note: null });
+  deps.stores.lessonStore.set('customer-1:lesson-ini-1', { mentor_id: 'mentor-java', status: 'OPENED', first_opened_at: null, last_opened_at: null, completed_at: null });
+  deps.stores.checkpointStore.set('customer-1:checkpoint-int-1', { mentor_id: 'mentor-java', status: 'APPROVED', first_opened_at: null, last_opened_at: null, submitted_at: null, approved_at: '2026-03-29T12:00:00.000Z', rejected_at: null, evaluator_note: null });
+  deps.stores.projectStore.set('customer-1:project-adv-1', { mentor_id: 'mentor-java', status: 'SUBMITTED', first_opened_at: null, last_opened_at: null, submitted_at: null, approved_at: null, rejected_at: null, delivery_url: null, evaluator_note: null });
 
   await withServer(deps, async (baseUrl) => {
     const response = await fetch(baseUrl + '/mentors/java/catalog?email=aluno@example.com', { headers: { 'x-api-key': 'test-api-key' } });
@@ -206,7 +206,7 @@ test('GET /mentors/:mentorSlug/catalog retorna catalogo completo ordenado', asyn
 
 test('GET /mentors/:mentorSlug/catalog aceita codigos e aliases de level', async () => {
   await withServer(createDeps(), async (baseUrl) => {
-    const cases = [['INI', 'INI'], ['INT', 'INT'], ['ADV', 'ADV'], ['PRO', 'PRO'], ['MAS', 'MAS'], ['iniciante', 'INI'], ['intermediario', 'INT'], ['intermediário', 'INT'], ['avancado', 'ADV'], ['avançado', 'ADV'], ['profissional', 'PRO'], ['maestria', 'MAS']] as const;
+    const cases = [['INI', 'INI'], ['INT', 'INT'], ['ADV', 'ADV'], ['PRO', 'PRO'], ['MAS', 'MAS'], ['iniciante', 'INI'], ['intermediario', 'INT'], ['intermedi\u00E1rio', 'INT'], ['avancado', 'ADV'], ['avan\u00E7ado', 'ADV'], ['profissional', 'PRO'], ['maestria', 'MAS']] as const;
     for (const [input, expected] of cases) {
       const response = await fetch(`${baseUrl}/mentors/java/catalog?email=aluno@example.com&level=${encodeURIComponent(input)}`, { headers: { 'x-api-key': 'test-api-key' } });
       const body = (await response.json()) as CatalogResponse;
@@ -228,10 +228,10 @@ test('GET /mentors/:mentorSlug/catalog remove modulos vazios e niveis sem modulo
 
 test('GET /mentors/:mentorSlug/catalog deriva flags a partir do status real e usa false/false sem linha', async () => {
   const deps = createDeps();
-  deps.stores.lessonStore.set('customer-1:lesson-ini-1', { status: 'OPENED', first_opened_at: null, last_opened_at: null, completed_at: null });
-  deps.stores.lessonStore.set('customer-1:lesson-int-1', { status: 'NOT_STARTED', first_opened_at: null, last_opened_at: null, completed_at: null });
-  deps.stores.checkpointStore.set('customer-1:checkpoint-int-1', { status: 'REJECTED', first_opened_at: null, last_opened_at: null, submitted_at: null, approved_at: null, rejected_at: '2026-03-29T12:00:00.000Z', evaluator_note: null });
-  deps.stores.projectStore.set('customer-1:project-adv-1', { status: 'APPROVED', first_opened_at: null, last_opened_at: null, submitted_at: null, approved_at: '2026-03-29T12:00:00.000Z', rejected_at: null, delivery_url: null, evaluator_note: null });
+  deps.stores.lessonStore.set('customer-1:lesson-ini-1', { mentor_id: 'mentor-java', status: 'OPENED', first_opened_at: null, last_opened_at: null, completed_at: null });
+  deps.stores.lessonStore.set('customer-1:lesson-int-1', { mentor_id: 'mentor-java', status: 'NOT_STARTED', first_opened_at: null, last_opened_at: null, completed_at: null });
+  deps.stores.checkpointStore.set('customer-1:checkpoint-int-1', { mentor_id: 'mentor-java', status: 'REJECTED', first_opened_at: null, last_opened_at: null, submitted_at: null, approved_at: null, rejected_at: '2026-03-29T12:00:00.000Z', evaluator_note: null });
+  deps.stores.projectStore.set('customer-1:project-adv-1', { mentor_id: 'mentor-java', status: 'APPROVED', first_opened_at: null, last_opened_at: null, submitted_at: null, approved_at: '2026-03-29T12:00:00.000Z', rejected_at: null, delivery_url: null, evaluator_note: null });
 
   await withServer(deps, async (baseUrl) => {
     const response = await fetch(`${baseUrl}/mentors/java/catalog?email=aluno@example.com`, { headers: { 'x-api-key': 'test-api-key' } });
@@ -289,19 +289,20 @@ test('POST /mentors/:mentorSlug/progress retorna 401 sem API key valida', async 
 test('POST /mentors/:mentorSlug/progress persiste status corretos para todos os tipos', async () => {
   await withServer(createDeps(), async (baseUrl, deps) => {
     const cases = [
-      [{ item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'opened' }, 'customer-1:lesson-py-1', deps.stores.lessonStore, 'OPENED'],
-      [{ item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'completed' }, 'customer-1:lesson-py-1', deps.stores.lessonStore, 'COMPLETED'],
-      [{ item_type: 'checkpoint', item_code: 'CP-1', event: 'opened' }, 'customer-1:checkpoint-py-1', deps.stores.checkpointStore, 'OPENED'],
-      [{ item_type: 'checkpoint', item_code: 'CP-1', event: 'completed' }, 'customer-1:checkpoint-py-1', deps.stores.checkpointStore, 'APPROVED'],
-      [{ item_type: 'project', item_code: 'PJ-1', event: 'opened' }, 'customer-1:project-py-1', deps.stores.projectStore, 'OPENED'],
-      [{ item_type: 'project', item_code: 'PJ-1', event: 'completed' }, 'customer-1:project-py-1', deps.stores.projectStore, 'APPROVED']
+      [{ item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'opened' }, 'customer-1:lesson-py-1', deps.stores.lessonStore, 'OPENED', 'mentor-python'],
+      [{ item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'completed' }, 'customer-1:lesson-py-1', deps.stores.lessonStore, 'COMPLETED', 'mentor-python'],
+      [{ item_type: 'checkpoint', item_code: 'CP-1', event: 'opened' }, 'customer-1:checkpoint-py-1', deps.stores.checkpointStore, 'OPENED', 'mentor-python'],
+      [{ item_type: 'checkpoint', item_code: 'CP-1', event: 'completed' }, 'customer-1:checkpoint-py-1', deps.stores.checkpointStore, 'APPROVED', 'mentor-python'],
+      [{ item_type: 'project', item_code: 'PJ-1', event: 'opened' }, 'customer-1:project-py-1', deps.stores.projectStore, 'OPENED', 'mentor-python'],
+      [{ item_type: 'project', item_code: 'PJ-1', event: 'completed' }, 'customer-1:project-py-1', deps.stores.projectStore, 'APPROVED', 'mentor-python']
     ] as const;
 
-    for (const [payload, key, store, expectedStatus] of cases) {
+    for (const [payload, key, store, expectedStatus, expectedMentorId] of cases) {
       const response = await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', ...payload }) });
       const body = (await response.json()) as { progress: { is_opened: boolean; is_completed: boolean } };
       assert.equal(response.status, 200);
       assert.equal(store.get(key)?.status, expectedStatus);
+      assert.equal(store.get(key)?.mentor_id, expectedMentorId);
       assert.equal(body.progress.is_opened, true);
       assert.equal(body.progress.is_completed, payload.event === 'completed');
     }
@@ -314,6 +315,7 @@ test('POST /mentors/:mentorSlug/progress chamadas repetidas mantem consistencia 
     await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'completed' }) });
     assert.equal(deps.stores.projectStore.size, 1);
     assert.equal(deps.stores.projectStore.get('customer-1:project-py-1')?.status, 'APPROVED');
+    assert.equal(deps.stores.projectStore.get('customer-1:project-py-1')?.mentor_id, 'mentor-python');
   });
 });
 
@@ -358,5 +360,8 @@ test('POST opened/completed e GET catalog refletem progresso derivado', async ()
     assert.deepEqual(body.levels[0]?.modules[0]?.projects[0]?.progress, { is_opened: true, is_completed: true });
   });
 });
+
+
+
 
 

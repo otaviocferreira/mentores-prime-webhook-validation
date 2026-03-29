@@ -1,8 +1,9 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProgressError, recordMentorProgress } from '../services/progress.service';
 
 type LessonRow = {
+  mentor_id: string;
   status: 'NOT_STARTED' | 'OPENED' | 'IN_PROGRESS' | 'COMPLETED';
   first_opened_at: string | null;
   last_opened_at: string | null;
@@ -10,6 +11,7 @@ type LessonRow = {
 };
 
 type CheckpointRow = {
+  mentor_id: string;
   status: 'NOT_STARTED' | 'OPENED' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
   first_opened_at: string | null;
   last_opened_at: string | null;
@@ -20,6 +22,7 @@ type CheckpointRow = {
 };
 
 type ProjectRow = {
+  mentor_id: string;
   status: 'NOT_STARTED' | 'OPENED' | 'IN_PROGRESS' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
   first_opened_at: string | null;
   last_opened_at: string | null;
@@ -67,32 +70,32 @@ function createProgressDeps() {
     },
     async insertLessonProgress(lessonId: string, input: any) {
       const key = `${input.customer_id}:${lessonId}`;
-      lessonStore[key] = { status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, completed_at: input.completed_at };
+      lessonStore[key] = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, completed_at: input.completed_at };
       return lessonStore[key];
     },
     async updateLessonProgress(lessonId: string, customerId: string, input: any) {
       const key = `${customerId}:${lessonId}`;
-      lessonStore[key] = { status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, completed_at: input.completed_at };
+      lessonStore[key] = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, completed_at: input.completed_at };
       return lessonStore[key];
     },
     async insertCheckpointProgress(checkpointId: string, input: any) {
       const key = `${input.customer_id}:${checkpointId}`;
-      checkpointStore[key] = { status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, evaluator_note: input.evaluator_note };
+      checkpointStore[key] = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, evaluator_note: input.evaluator_note };
       return checkpointStore[key];
     },
     async updateCheckpointProgress(checkpointId: string, customerId: string, input: any) {
       const key = `${customerId}:${checkpointId}`;
-      checkpointStore[key] = { status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, evaluator_note: input.evaluator_note };
+      checkpointStore[key] = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, evaluator_note: input.evaluator_note };
       return checkpointStore[key];
     },
     async insertProjectProgress(projectId: string, input: any) {
       const key = `${input.customer_id}:${projectId}`;
-      projectStore[key] = { status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, delivery_url: input.delivery_url, evaluator_note: input.evaluator_note };
+      projectStore[key] = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, delivery_url: input.delivery_url, evaluator_note: input.evaluator_note };
       return projectStore[key];
     },
     async updateProjectProgress(projectId: string, customerId: string, input: any) {
       const key = `${customerId}:${projectId}`;
-      projectStore[key] = { status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, delivery_url: input.delivery_url, evaluator_note: input.evaluator_note };
+      projectStore[key] = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, delivery_url: input.delivery_url, evaluator_note: input.evaluator_note };
       return projectStore[key];
     }
   };
@@ -100,48 +103,54 @@ function createProgressDeps() {
   return deps;
 }
 
-test('recordMentorProgress lesson opened cria status OPENED', async () => {
+test('recordMentorProgress lesson opened cria status OPENED e persiste mentor_id', async () => {
   const deps = createProgressDeps();
   const response = await recordMentorProgress({ mentorSlug: 'python', email: '  ALUNO@example.com  ', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'opened' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: false, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: null });
   assert.equal(deps.stores.lessonStore['customer-1:lesson-1']?.status, 'OPENED');
+  assert.equal(deps.stores.lessonStore['customer-1:lesson-1']?.mentor_id, 'mentor-1');
 });
 
-test('recordMentorProgress lesson completed cria status COMPLETED', async () => {
+test('recordMentorProgress lesson completed cria status COMPLETED e persiste mentor_id', async () => {
   const deps = createProgressDeps();
   const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'completed' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: '2026-03-29T12:00:00.000Z' });
   assert.equal(deps.stores.lessonStore['customer-1:lesson-1']?.status, 'COMPLETED');
+  assert.equal(deps.stores.lessonStore['customer-1:lesson-1']?.mentor_id, 'mentor-1');
 });
 
-test('recordMentorProgress checkpoint opened cria status OPENED', async () => {
+test('recordMentorProgress checkpoint opened cria status OPENED e persiste mentor_id', async () => {
   const deps = createProgressDeps();
   const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'opened' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: false, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: null });
   assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.status, 'OPENED');
+  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.mentor_id, 'mentor-1');
 });
 
-test('recordMentorProgress checkpoint completed cria status APPROVED e response usa approved_at como completed_at', async () => {
+test('recordMentorProgress checkpoint completed cria status APPROVED, usa approved_at e persiste mentor_id', async () => {
   const deps = createProgressDeps();
   const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'completed' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: '2026-03-29T12:00:00.000Z' });
   assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.status, 'APPROVED');
   assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.approved_at, '2026-03-29T12:00:00.000Z');
+  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.mentor_id, 'mentor-1');
 });
 
-test('recordMentorProgress project opened cria status OPENED', async () => {
+test('recordMentorProgress project opened cria status OPENED e persiste mentor_id', async () => {
   const deps = createProgressDeps();
   const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'opened' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: false, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: null });
   assert.equal(deps.stores.projectStore['customer-1:project-1']?.status, 'OPENED');
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.mentor_id, 'mentor-1');
 });
 
-test('recordMentorProgress project completed cria status APPROVED e response usa approved_at como completed_at', async () => {
+test('recordMentorProgress project completed cria status APPROVED, usa approved_at e persiste mentor_id', async () => {
   const deps = createProgressDeps();
   const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'completed' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: '2026-03-29T12:00:00.000Z' });
   assert.equal(deps.stores.projectStore['customer-1:project-1']?.status, 'APPROVED');
   assert.equal(deps.stores.projectStore['customer-1:project-1']?.approved_at, '2026-03-29T12:00:00.000Z');
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.mentor_id, 'mentor-1');
 });
 
 test('recordMentorProgress completed preserva first_opened_at existente e nao duplica registro', async () => {
@@ -150,6 +159,7 @@ test('recordMentorProgress completed preserva first_opened_at existente e nao du
   const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'completed' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-20T10:00:00.000Z', completed_at: '2026-03-29T12:00:00.000Z' });
   assert.equal(Object.keys(deps.stores.lessonStore).length, 1);
+  assert.equal(deps.stores.lessonStore['customer-1:lesson-1']?.mentor_id, 'mentor-1');
 });
 
 test('recordMentorProgress chamadas repetidas preservam completed_at existente', async () => {
@@ -158,6 +168,7 @@ test('recordMentorProgress chamadas repetidas preservam completed_at existente',
   const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'completed' }, deps, new Date('2026-03-30T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: '2026-03-29T12:00:00.000Z' });
   assert.equal(Object.keys(deps.stores.projectStore).length, 1);
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.mentor_id, 'mentor-1');
 });
 
 test('recordMentorProgress retorna 400 para body invalido', async () => {

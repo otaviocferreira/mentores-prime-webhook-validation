@@ -1,4 +1,4 @@
-import { normalizeEmail } from './webhook.service';
+﻿import { normalizeEmail } from './webhook.service';
 
 export type ProgressItemType = 'lesson' | 'checkpoint' | 'project';
 export type ProgressEventType = 'opened' | 'completed';
@@ -59,14 +59,29 @@ export interface ProjectProgressRow {
 
 export interface LessonProgressInsertInput extends LessonProgressRow {
   customer_id: string;
+  mentor_id: string;
 }
 
 export interface CheckpointProgressInsertInput extends CheckpointProgressRow {
   customer_id: string;
+  mentor_id: string;
 }
 
 export interface ProjectProgressInsertInput extends ProjectProgressRow {
   customer_id: string;
+  mentor_id: string;
+}
+
+export interface LessonProgressUpdateInput extends LessonProgressRow {
+  mentor_id: string;
+}
+
+export interface CheckpointProgressUpdateInput extends CheckpointProgressRow {
+  mentor_id: string;
+}
+
+export interface ProjectProgressUpdateInput extends ProjectProgressRow {
+  mentor_id: string;
 }
 
 export interface ProgressServiceDeps {
@@ -79,15 +94,15 @@ export interface ProgressServiceDeps {
   findCheckpointProgress(customerId: string, checkpointId: string): Promise<CheckpointProgressRow | null>;
   findProjectProgress(customerId: string, projectId: string): Promise<ProjectProgressRow | null>;
   insertLessonProgress(lessonId: string, input: LessonProgressInsertInput): Promise<LessonProgressRow>;
-  updateLessonProgress(lessonId: string, customerId: string, input: LessonProgressRow): Promise<LessonProgressRow>;
+  updateLessonProgress(lessonId: string, customerId: string, input: LessonProgressUpdateInput): Promise<LessonProgressRow>;
   insertCheckpointProgress(checkpointId: string, input: CheckpointProgressInsertInput): Promise<CheckpointProgressRow>;
   updateCheckpointProgress(
     checkpointId: string,
     customerId: string,
-    input: CheckpointProgressRow
+    input: CheckpointProgressUpdateInput
   ): Promise<CheckpointProgressRow>;
   insertProjectProgress(projectId: string, input: ProjectProgressInsertInput): Promise<ProjectProgressRow>;
-  updateProjectProgress(projectId: string, customerId: string, input: ProjectProgressRow): Promise<ProjectProgressRow>;
+  updateProjectProgress(projectId: string, customerId: string, input: ProjectProgressUpdateInput): Promise<ProjectProgressRow>;
 }
 
 export interface RecordMentorProgressParams {
@@ -164,7 +179,7 @@ export async function recordMentorProgress(
     throw new ProgressError(400, 'item_mentor_mismatch', 'Item does not belong to the informed mentor');
   }
 
-  const savedProgress = await saveProgressByType(itemType, customer.id, item.id, event, deps, now);
+  const savedProgress = await saveProgressByType(itemType, customer.id, item.id, item.mentor_id, event, deps, now);
 
   return {
     mentor_slug: mentor.slug,
@@ -208,6 +223,7 @@ async function saveProgressByType(
   itemType: ProgressItemType,
   customerId: string,
   itemId: string,
+  mentorId: string,
   event: ProgressEventType,
   deps: ProgressServiceDeps,
   now: Date
@@ -216,8 +232,8 @@ async function saveProgressByType(
     const current = await deps.findLessonProgress(customerId, itemId);
     const next = buildLessonProgress(event, current, now);
     const saved = current
-      ? await deps.updateLessonProgress(itemId, customerId, next)
-      : await deps.insertLessonProgress(itemId, { customer_id: customerId, ...next });
+      ? await deps.updateLessonProgress(itemId, customerId, { mentor_id: mentorId, ...next })
+      : await deps.insertLessonProgress(itemId, { customer_id: customerId, mentor_id: mentorId, ...next });
     return toLessonResponse(saved);
   }
 
@@ -225,16 +241,16 @@ async function saveProgressByType(
     const current = await deps.findCheckpointProgress(customerId, itemId);
     const next = buildCheckpointProgress(event, current, now);
     const saved = current
-      ? await deps.updateCheckpointProgress(itemId, customerId, next)
-      : await deps.insertCheckpointProgress(itemId, { customer_id: customerId, ...next });
+      ? await deps.updateCheckpointProgress(itemId, customerId, { mentor_id: mentorId, ...next })
+      : await deps.insertCheckpointProgress(itemId, { customer_id: customerId, mentor_id: mentorId, ...next });
     return toCheckpointResponse(saved);
   }
 
   const current = await deps.findProjectProgress(customerId, itemId);
   const next = buildProjectProgress(event, current, now);
   const saved = current
-    ? await deps.updateProjectProgress(itemId, customerId, next)
-    : await deps.insertProjectProgress(itemId, { customer_id: customerId, ...next });
+    ? await deps.updateProjectProgress(itemId, customerId, { mentor_id: mentorId, ...next })
+    : await deps.insertProjectProgress(itemId, { customer_id: customerId, mentor_id: mentorId, ...next });
   return toProjectResponse(saved);
 }
 
@@ -353,3 +369,4 @@ function toProjectResponse(progress: ProjectProgressRow): ProgressResponseState 
     completed_at: progress.approved_at
   };
 }
+
