@@ -21,9 +21,13 @@ import {
   ProgressMentorRow,
   ProgressCustomerRow,
   ProgressItemRow,
-  ProgressRow,
+  LessonProgressRow as LessonProgressStateRow,
+  CheckpointProgressRow as CheckpointProgressStateRow,
+  ProjectProgressRow as ProjectProgressStateRow,
   ProgressError,
-  ProgressUpsertInput,
+  LessonProgressInsertInput,
+  CheckpointProgressInsertInput,
+  ProjectProgressInsertInput,
   recordMentorProgress
 } from '../services/progress.service';
 
@@ -224,7 +228,7 @@ const mentorsDeps: MentorsRouterDeps = {
 
     const { data, error } = await supabase
       .from('customer_lesson_progress')
-      .select('lesson_id, is_opened, is_completed')
+      .select('lesson_id, status')
       .eq('customer_id', customerId)
       .in('lesson_id', lessonIds);
 
@@ -237,7 +241,7 @@ const mentorsDeps: MentorsRouterDeps = {
 
     const { data, error } = await supabase
       .from('customer_checkpoint_progress')
-      .select('checkpoint_id, is_opened, is_completed')
+      .select('checkpoint_id, status')
       .eq('customer_id', customerId)
       .in('checkpoint_id', checkpointIds);
 
@@ -250,7 +254,7 @@ const mentorsDeps: MentorsRouterDeps = {
 
     const { data, error } = await supabase
       .from('customer_project_progress')
-      .select('project_id, is_opened, is_completed')
+      .select('project_id, status')
       .eq('customer_id', customerId)
       .in('project_id', projectIds);
 
@@ -291,10 +295,10 @@ const mentorsDeps: MentorsRouterDeps = {
     return data;
   },
 
-  async findLessonProgress(customerId: string, lessonId: string): Promise<ProgressRow | null> {
+  async findLessonProgress(customerId: string, lessonId: string): Promise<LessonProgressStateRow | null> {
     const { data, error } = await supabase
       .from('customer_lesson_progress')
-      .select('is_opened, is_completed, first_opened_at, completed_at')
+      .select('status, first_opened_at, last_opened_at, completed_at')
       .eq('customer_id', customerId)
       .eq('lesson_id', lessonId)
       .maybeSingle();
@@ -303,10 +307,10 @@ const mentorsDeps: MentorsRouterDeps = {
     return data;
   },
 
-  async findCheckpointProgress(customerId: string, checkpointId: string): Promise<ProgressRow | null> {
+  async findCheckpointProgress(customerId: string, checkpointId: string): Promise<CheckpointProgressStateRow | null> {
     const { data, error } = await supabase
       .from('customer_checkpoint_progress')
-      .select('is_opened, is_completed, first_opened_at, completed_at')
+      .select('status, first_opened_at, last_opened_at, submitted_at, approved_at, rejected_at, evaluator_note')
       .eq('customer_id', customerId)
       .eq('checkpoint_id', checkpointId)
       .maybeSingle();
@@ -315,10 +319,10 @@ const mentorsDeps: MentorsRouterDeps = {
     return data;
   },
 
-  async findProjectProgress(customerId: string, projectId: string): Promise<ProgressRow | null> {
+  async findProjectProgress(customerId: string, projectId: string): Promise<ProjectProgressStateRow | null> {
     const { data, error } = await supabase
       .from('customer_project_progress')
-      .select('is_opened, is_completed, first_opened_at, completed_at')
+      .select('status, first_opened_at, last_opened_at, submitted_at, approved_at, rejected_at, delivery_url, evaluator_note')
       .eq('customer_id', customerId)
       .eq('project_id', projectId)
       .maybeSingle();
@@ -327,63 +331,137 @@ const mentorsDeps: MentorsRouterDeps = {
     return data;
   },
 
-  async upsertLessonProgress(lessonId: string, input: ProgressUpsertInput): Promise<ProgressRow> {
+  async insertLessonProgress(lessonId: string, input: LessonProgressInsertInput): Promise<LessonProgressStateRow> {
     const { data, error } = await supabase
       .from('customer_lesson_progress')
-      .upsert(
-        {
-          customer_id: input.customer_id,
-          lesson_id: lessonId,
-          is_opened: input.is_opened,
-          is_completed: input.is_completed,
-          first_opened_at: input.first_opened_at,
-          completed_at: input.completed_at
-        },
-        { onConflict: 'customer_id,lesson_id' }
-      )
-      .select('is_opened, is_completed, first_opened_at, completed_at')
+      .insert({
+        customer_id: input.customer_id,
+        lesson_id: lessonId,
+        status: input.status,
+        first_opened_at: input.first_opened_at,
+        last_opened_at: input.last_opened_at,
+        completed_at: input.completed_at
+      })
+      .select('status, first_opened_at, last_opened_at, completed_at')
       .single();
 
     if (error) throw error;
     return data;
   },
 
-  async upsertCheckpointProgress(checkpointId: string, input: ProgressUpsertInput): Promise<ProgressRow> {
+  async updateLessonProgress(
+    lessonId: string,
+    customerId: string,
+    input: LessonProgressStateRow
+  ): Promise<LessonProgressStateRow> {
+    const { data, error } = await supabase
+      .from('customer_lesson_progress')
+      .update({
+        status: input.status,
+        first_opened_at: input.first_opened_at,
+        last_opened_at: input.last_opened_at,
+        completed_at: input.completed_at
+      })
+      .eq('customer_id', customerId)
+      .eq('lesson_id', lessonId)
+      .select('status, first_opened_at, last_opened_at, completed_at')
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async insertCheckpointProgress(
+    checkpointId: string,
+    input: CheckpointProgressInsertInput
+  ): Promise<CheckpointProgressStateRow> {
     const { data, error } = await supabase
       .from('customer_checkpoint_progress')
-      .upsert(
-        {
-          customer_id: input.customer_id,
-          checkpoint_id: checkpointId,
-          is_opened: input.is_opened,
-          is_completed: input.is_completed,
-          first_opened_at: input.first_opened_at,
-          completed_at: input.completed_at
-        },
-        { onConflict: 'customer_id,checkpoint_id' }
-      )
-      .select('is_opened, is_completed, first_opened_at, completed_at')
+      .insert({
+        customer_id: input.customer_id,
+        checkpoint_id: checkpointId,
+        status: input.status,
+        first_opened_at: input.first_opened_at,
+        last_opened_at: input.last_opened_at,
+        submitted_at: input.submitted_at,
+        approved_at: input.approved_at,
+        rejected_at: input.rejected_at,
+        evaluator_note: input.evaluator_note
+      })
+      .select('status, first_opened_at, last_opened_at, submitted_at, approved_at, rejected_at, evaluator_note')
       .single();
 
     if (error) throw error;
     return data;
   },
 
-  async upsertProjectProgress(projectId: string, input: ProgressUpsertInput): Promise<ProgressRow> {
+  async updateCheckpointProgress(
+    checkpointId: string,
+    customerId: string,
+    input: CheckpointProgressStateRow
+  ): Promise<CheckpointProgressStateRow> {
+    const { data, error } = await supabase
+      .from('customer_checkpoint_progress')
+      .update({
+        status: input.status,
+        first_opened_at: input.first_opened_at,
+        last_opened_at: input.last_opened_at,
+        submitted_at: input.submitted_at,
+        approved_at: input.approved_at,
+        rejected_at: input.rejected_at,
+        evaluator_note: input.evaluator_note
+      })
+      .eq('customer_id', customerId)
+      .eq('checkpoint_id', checkpointId)
+      .select('status, first_opened_at, last_opened_at, submitted_at, approved_at, rejected_at, evaluator_note')
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async insertProjectProgress(projectId: string, input: ProjectProgressInsertInput): Promise<ProjectProgressStateRow> {
     const { data, error } = await supabase
       .from('customer_project_progress')
-      .upsert(
-        {
-          customer_id: input.customer_id,
-          project_id: projectId,
-          is_opened: input.is_opened,
-          is_completed: input.is_completed,
-          first_opened_at: input.first_opened_at,
-          completed_at: input.completed_at
-        },
-        { onConflict: 'customer_id,project_id' }
-      )
-      .select('is_opened, is_completed, first_opened_at, completed_at')
+      .insert({
+        customer_id: input.customer_id,
+        project_id: projectId,
+        status: input.status,
+        first_opened_at: input.first_opened_at,
+        last_opened_at: input.last_opened_at,
+        submitted_at: input.submitted_at,
+        approved_at: input.approved_at,
+        rejected_at: input.rejected_at,
+        delivery_url: input.delivery_url,
+        evaluator_note: input.evaluator_note
+      })
+      .select('status, first_opened_at, last_opened_at, submitted_at, approved_at, rejected_at, delivery_url, evaluator_note')
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async updateProjectProgress(
+    projectId: string,
+    customerId: string,
+    input: ProjectProgressStateRow
+  ): Promise<ProjectProgressStateRow> {
+    const { data, error } = await supabase
+      .from('customer_project_progress')
+      .update({
+        status: input.status,
+        first_opened_at: input.first_opened_at,
+        last_opened_at: input.last_opened_at,
+        submitted_at: input.submitted_at,
+        approved_at: input.approved_at,
+        rejected_at: input.rejected_at,
+        delivery_url: input.delivery_url,
+        evaluator_note: input.evaluator_note
+      })
+      .eq('customer_id', customerId)
+      .eq('project_id', projectId)
+      .select('status, first_opened_at, last_opened_at, submitted_at, approved_at, rejected_at, delivery_url, evaluator_note')
       .single();
 
     if (error) throw error;

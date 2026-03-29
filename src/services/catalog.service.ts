@@ -14,6 +14,9 @@ export const LEVEL_CODE_ALIASES: Record<string, CatalogLevelCode> = {
 };
 
 export type CatalogLevelCode = 'INI' | 'INT' | 'ADV' | 'PRO' | 'MAS';
+export type LessonProgressStatus = 'NOT_STARTED' | 'OPENED' | 'IN_PROGRESS' | 'COMPLETED';
+export type CheckpointProgressStatus = 'NOT_STARTED' | 'OPENED' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+export type ProjectProgressStatus = 'NOT_STARTED' | 'OPENED' | 'IN_PROGRESS' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 
 export interface CatalogMentorRow {
   id: string;
@@ -72,20 +75,17 @@ export interface CatalogProjectRow {
 
 export interface LessonProgressRow {
   lesson_id: string;
-  is_opened: boolean;
-  is_completed: boolean;
+  status: LessonProgressStatus;
 }
 
 export interface CheckpointProgressRow {
   checkpoint_id: string;
-  is_opened: boolean;
-  is_completed: boolean;
+  status: CheckpointProgressStatus;
 }
 
 export interface ProjectProgressRow {
   project_id: string;
-  is_opened: boolean;
-  is_completed: boolean;
+  status: ProjectProgressStatus;
 }
 
 export interface CatalogServiceDeps {
@@ -215,7 +215,9 @@ export async function getMentorCatalog(
   }
 
   const levels = await deps.listActiveLevelsByMentorId(mentor.id);
-  const selectedLevels = (normalizedLevel ? levels.filter((level) => level.code === normalizedLevel) : levels).sort((a, b) => a.order_index - b.order_index);
+  const selectedLevels = (normalizedLevel ? levels.filter((level) => level.code === normalizedLevel) : levels).sort(
+    (a, b) => a.order_index - b.order_index
+  );
 
   if (normalizedLevel && selectedLevels.length === 0) {
     throw new CatalogError(400, 'invalid_level', 'Level is not available for this mentor');
@@ -226,7 +228,9 @@ export async function getMentorCatalog(
   }
 
   const selectedLevelIds = selectedLevels.map((level) => level.id);
-  const modules = (await deps.listActiveModulesByMentorId(mentor.id, selectedLevelIds)).sort((a, b) => a.order_index - b.order_index);
+  const modules = (await deps.listActiveModulesByMentorId(mentor.id, selectedLevelIds)).sort(
+    (a, b) => a.order_index - b.order_index
+  );
   if (modules.length === 0) {
     throw new CatalogError(404, 'catalog_not_found', 'No published catalog found for this mentor');
   }
@@ -254,9 +258,11 @@ export async function getMentorCatalog(
     deps.listProjectProgress(customer.id, projects.map((project) => project.id))
   ]);
 
-  const lessonProgressMap = new Map(lessonProgressRows.map((row) => [row.lesson_id, toProgressFlags(row)]));
-  const checkpointProgressMap = new Map(checkpointProgressRows.map((row) => [row.checkpoint_id, toProgressFlags(row)]));
-  const projectProgressMap = new Map(projectProgressRows.map((row) => [row.project_id, toProgressFlags(row)]));
+  const lessonProgressMap = new Map(lessonProgressRows.map((row) => [row.lesson_id, lessonStatusToFlags(row.status)]));
+  const checkpointProgressMap = new Map(
+    checkpointProgressRows.map((row) => [row.checkpoint_id, checkpointStatusToFlags(row.status)])
+  );
+  const projectProgressMap = new Map(projectProgressRows.map((row) => [row.project_id, projectStatusToFlags(row.status)]));
 
   const lessonsByModuleId = new Map<string, CatalogResponseLesson[]>();
   for (const lesson of lessons) {
@@ -355,10 +361,24 @@ function defaultProgress(): ProgressFlags {
   };
 }
 
-function toProgressFlags(progress: { is_opened: boolean; is_completed: boolean }): ProgressFlags {
+function lessonStatusToFlags(status: LessonProgressStatus): ProgressFlags {
   return {
-    is_opened: Boolean(progress.is_opened),
-    is_completed: Boolean(progress.is_completed)
+    is_opened: status !== 'NOT_STARTED',
+    is_completed: status === 'COMPLETED'
+  };
+}
+
+function checkpointStatusToFlags(status: CheckpointProgressStatus): ProgressFlags {
+  return {
+    is_opened: status !== 'NOT_STARTED',
+    is_completed: status === 'APPROVED'
+  };
+}
+
+function projectStatusToFlags(status: ProjectProgressStatus): ProgressFlags {
+  return {
+    is_opened: status !== 'NOT_STARTED',
+    is_completed: status === 'APPROVED'
   };
 }
 
@@ -396,4 +416,3 @@ function validateCatalogIntegrity(
     }
   }
 }
-

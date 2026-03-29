@@ -2,6 +2,9 @@ import { normalizeEmail } from './webhook.service';
 
 export type ProgressItemType = 'lesson' | 'checkpoint' | 'project';
 export type ProgressEventType = 'opened' | 'completed';
+export type LessonProgressStatus = 'NOT_STARTED' | 'OPENED' | 'IN_PROGRESS' | 'COMPLETED';
+export type CheckpointProgressStatus = 'NOT_STARTED' | 'OPENED' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+export type ProjectProgressStatus = 'NOT_STARTED' | 'OPENED' | 'IN_PROGRESS' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 
 export interface ProgressMentorRow {
   id: string;
@@ -19,14 +22,50 @@ export interface ProgressItemRow {
   mentor_id: string;
 }
 
-export interface ProgressRow {
+export interface ProgressResponseState {
   is_opened: boolean;
   is_completed: boolean;
   first_opened_at: string | null;
   completed_at: string | null;
 }
 
-export interface ProgressUpsertInput extends ProgressRow {
+export interface LessonProgressRow {
+  status: LessonProgressStatus;
+  first_opened_at: string | null;
+  last_opened_at: string | null;
+  completed_at: string | null;
+}
+
+export interface CheckpointProgressRow {
+  status: CheckpointProgressStatus;
+  first_opened_at: string | null;
+  last_opened_at: string | null;
+  submitted_at: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  evaluator_note: string | null;
+}
+
+export interface ProjectProgressRow {
+  status: ProjectProgressStatus;
+  first_opened_at: string | null;
+  last_opened_at: string | null;
+  submitted_at: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  delivery_url: string | null;
+  evaluator_note: string | null;
+}
+
+export interface LessonProgressInsertInput extends LessonProgressRow {
+  customer_id: string;
+}
+
+export interface CheckpointProgressInsertInput extends CheckpointProgressRow {
+  customer_id: string;
+}
+
+export interface ProjectProgressInsertInput extends ProjectProgressRow {
   customer_id: string;
 }
 
@@ -36,12 +75,19 @@ export interface ProgressServiceDeps {
   findLessonByCode(itemCode: string): Promise<ProgressItemRow | null>;
   findCheckpointByCode(itemCode: string): Promise<ProgressItemRow | null>;
   findProjectByCode(itemCode: string): Promise<ProgressItemRow | null>;
-  findLessonProgress(customerId: string, lessonId: string): Promise<ProgressRow | null>;
-  findCheckpointProgress(customerId: string, checkpointId: string): Promise<ProgressRow | null>;
-  findProjectProgress(customerId: string, projectId: string): Promise<ProgressRow | null>;
-  upsertLessonProgress(lessonId: string, input: ProgressUpsertInput): Promise<ProgressRow>;
-  upsertCheckpointProgress(checkpointId: string, input: ProgressUpsertInput): Promise<ProgressRow>;
-  upsertProjectProgress(projectId: string, input: ProgressUpsertInput): Promise<ProgressRow>;
+  findLessonProgress(customerId: string, lessonId: string): Promise<LessonProgressRow | null>;
+  findCheckpointProgress(customerId: string, checkpointId: string): Promise<CheckpointProgressRow | null>;
+  findProjectProgress(customerId: string, projectId: string): Promise<ProjectProgressRow | null>;
+  insertLessonProgress(lessonId: string, input: LessonProgressInsertInput): Promise<LessonProgressRow>;
+  updateLessonProgress(lessonId: string, customerId: string, input: LessonProgressRow): Promise<LessonProgressRow>;
+  insertCheckpointProgress(checkpointId: string, input: CheckpointProgressInsertInput): Promise<CheckpointProgressRow>;
+  updateCheckpointProgress(
+    checkpointId: string,
+    customerId: string,
+    input: CheckpointProgressRow
+  ): Promise<CheckpointProgressRow>;
+  insertProjectProgress(projectId: string, input: ProjectProgressInsertInput): Promise<ProjectProgressRow>;
+  updateProjectProgress(projectId: string, customerId: string, input: ProjectProgressRow): Promise<ProjectProgressRow>;
 }
 
 export interface RecordMentorProgressParams {
@@ -58,7 +104,7 @@ export interface RecordMentorProgressResponse {
   item_type: ProgressItemType;
   item_code: string;
   event: ProgressEventType;
-  progress: ProgressRow;
+  progress: ProgressResponseState;
 }
 
 export class ProgressError extends Error {
@@ -118,9 +164,7 @@ export async function recordMentorProgress(
     throw new ProgressError(400, 'item_mentor_mismatch', 'Item does not belong to the informed mentor');
   }
 
-  const currentProgress = await findCurrentProgress(itemType, customer.id, item.id, deps);
-  const nextProgress = buildNextProgress(event, currentProgress, now);
-  const savedProgress = await upsertProgress(itemType, item.id, customer.id, nextProgress, deps);
+  const savedProgress = await saveProgressByType(itemType, customer.id, item.id, event, deps, now);
 
   return {
     mentor_slug: mentor.slug,
@@ -160,63 +204,152 @@ async function findItemByType(itemType: ProgressItemType, itemCode: string, deps
   return deps.findProjectByCode(itemCode);
 }
 
-async function findCurrentProgress(
+async function saveProgressByType(
   itemType: ProgressItemType,
   customerId: string,
   itemId: string,
-  deps: ProgressServiceDeps
-): Promise<ProgressRow | null> {
+  event: ProgressEventType,
+  deps: ProgressServiceDeps,
+  now: Date
+): Promise<ProgressResponseState> {
   if (itemType === 'lesson') {
-    return deps.findLessonProgress(customerId, itemId);
+    const current = await deps.findLessonProgress(customerId, itemId);
+    const next = buildLessonProgress(event, current, now);
+    const saved = current
+      ? await deps.updateLessonProgress(itemId, customerId, next)
+      : await deps.insertLessonProgress(itemId, { customer_id: customerId, ...next });
+    return toLessonResponse(saved);
   }
 
   if (itemType === 'checkpoint') {
-    return deps.findCheckpointProgress(customerId, itemId);
+    const current = await deps.findCheckpointProgress(customerId, itemId);
+    const next = buildCheckpointProgress(event, current, now);
+    const saved = current
+      ? await deps.updateCheckpointProgress(itemId, customerId, next)
+      : await deps.insertCheckpointProgress(itemId, { customer_id: customerId, ...next });
+    return toCheckpointResponse(saved);
   }
 
-  return deps.findProjectProgress(customerId, itemId);
+  const current = await deps.findProjectProgress(customerId, itemId);
+  const next = buildProjectProgress(event, current, now);
+  const saved = current
+    ? await deps.updateProjectProgress(itemId, customerId, next)
+    : await deps.insertProjectProgress(itemId, { customer_id: customerId, ...next });
+  return toProjectResponse(saved);
 }
 
-function buildNextProgress(event: ProgressEventType, currentProgress: ProgressRow | null, now: Date): ProgressRow {
+function buildLessonProgress(
+  event: ProgressEventType,
+  current: LessonProgressRow | null,
+  now: Date
+): LessonProgressRow {
   const nowIso = now.toISOString();
-  const firstOpenedAt = currentProgress?.first_opened_at ?? nowIso;
+  const firstOpenedAt = current?.first_opened_at ?? nowIso;
 
   if (event === 'opened') {
     return {
-      is_opened: true,
-      is_completed: currentProgress?.is_completed ?? false,
+      status: current?.status === 'COMPLETED' ? 'COMPLETED' : 'OPENED',
       first_opened_at: firstOpenedAt,
-      completed_at: currentProgress?.completed_at ?? null
+      last_opened_at: nowIso,
+      completed_at: current?.completed_at ?? null
     };
   }
 
   return {
-    is_opened: true,
-    is_completed: true,
+    status: 'COMPLETED',
     first_opened_at: firstOpenedAt,
-    completed_at: currentProgress?.completed_at ?? nowIso
+    last_opened_at: nowIso,
+    completed_at: current?.completed_at ?? nowIso
   };
 }
 
-async function upsertProgress(
-  itemType: ProgressItemType,
-  itemId: string,
-  customerId: string,
-  progress: ProgressRow,
-  deps: ProgressServiceDeps
-): Promise<ProgressRow> {
-  const input: ProgressUpsertInput = {
-    customer_id: customerId,
-    ...progress
+function buildCheckpointProgress(
+  event: ProgressEventType,
+  current: CheckpointProgressRow | null,
+  now: Date
+): CheckpointProgressRow {
+  const nowIso = now.toISOString();
+  const firstOpenedAt = current?.first_opened_at ?? nowIso;
+
+  if (event === 'opened') {
+    return {
+      status: current?.status === 'APPROVED' ? 'APPROVED' : 'OPENED',
+      first_opened_at: firstOpenedAt,
+      last_opened_at: nowIso,
+      submitted_at: current?.submitted_at ?? null,
+      approved_at: current?.approved_at ?? null,
+      rejected_at: current?.rejected_at ?? null,
+      evaluator_note: current?.evaluator_note ?? null
+    };
+  }
+
+  return {
+    status: 'APPROVED',
+    first_opened_at: firstOpenedAt,
+    last_opened_at: nowIso,
+    submitted_at: current?.submitted_at ?? null,
+    approved_at: current?.approved_at ?? nowIso,
+    rejected_at: current?.rejected_at ?? null,
+    evaluator_note: current?.evaluator_note ?? null
   };
+}
 
-  if (itemType === 'lesson') {
-    return deps.upsertLessonProgress(itemId, input);
+function buildProjectProgress(
+  event: ProgressEventType,
+  current: ProjectProgressRow | null,
+  now: Date
+): ProjectProgressRow {
+  const nowIso = now.toISOString();
+  const firstOpenedAt = current?.first_opened_at ?? nowIso;
+
+  if (event === 'opened') {
+    return {
+      status: current?.status === 'APPROVED' ? 'APPROVED' : 'OPENED',
+      first_opened_at: firstOpenedAt,
+      last_opened_at: nowIso,
+      submitted_at: current?.submitted_at ?? null,
+      approved_at: current?.approved_at ?? null,
+      rejected_at: current?.rejected_at ?? null,
+      delivery_url: current?.delivery_url ?? null,
+      evaluator_note: current?.evaluator_note ?? null
+    };
   }
 
-  if (itemType === 'checkpoint') {
-    return deps.upsertCheckpointProgress(itemId, input);
-  }
+  return {
+    status: 'APPROVED',
+    first_opened_at: firstOpenedAt,
+    last_opened_at: nowIso,
+    submitted_at: current?.submitted_at ?? null,
+    approved_at: current?.approved_at ?? nowIso,
+    rejected_at: current?.rejected_at ?? null,
+    delivery_url: current?.delivery_url ?? null,
+    evaluator_note: current?.evaluator_note ?? null
+  };
+}
 
-  return deps.upsertProjectProgress(itemId, input);
+function toLessonResponse(progress: LessonProgressRow): ProgressResponseState {
+  return {
+    is_opened: progress.status !== 'NOT_STARTED',
+    is_completed: progress.status === 'COMPLETED',
+    first_opened_at: progress.first_opened_at,
+    completed_at: progress.completed_at
+  };
+}
+
+function toCheckpointResponse(progress: CheckpointProgressRow): ProgressResponseState {
+  return {
+    is_opened: progress.status !== 'NOT_STARTED',
+    is_completed: progress.status === 'APPROVED',
+    first_opened_at: progress.first_opened_at,
+    completed_at: progress.approved_at
+  };
+}
+
+function toProjectResponse(progress: ProjectProgressRow): ProgressResponseState {
+  return {
+    is_opened: progress.status !== 'NOT_STARTED',
+    is_completed: progress.status === 'APPROVED',
+    first_opened_at: progress.first_opened_at,
+    completed_at: progress.approved_at
+  };
 }
