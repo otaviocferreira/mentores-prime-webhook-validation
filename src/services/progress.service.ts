@@ -1,4 +1,5 @@
 ﻿import { normalizeEmail } from './webhook.service';
+import { DiagnosticLogger } from '../utils/request-log';
 
 export type ProgressItemType = 'lesson' | 'checkpoint' | 'project';
 export type ProgressEventType = 'opened' | 'completed';
@@ -136,7 +137,8 @@ export class ProgressError extends Error {
 export async function recordMentorProgress(
   params: RecordMentorProgressParams,
   deps: ProgressServiceDeps,
-  now: Date = new Date()
+  now: Date = new Date(),
+  logger?: DiagnosticLogger
 ): Promise<RecordMentorProgressResponse> {
   const mentorSlug = typeof params.mentorSlug === 'string' ? params.mentorSlug.trim() : '';
   if (!mentorSlug) {
@@ -160,16 +162,19 @@ export async function recordMentorProgress(
     throw new ProgressError(400, 'invalid_event', 'Invalid event');
   }
 
+  logger?.info('mentor_lookup', 'resolving mentor', { mentor_slug: mentorSlug });
   const mentor = await deps.findActiveMentorBySlug(mentorSlug);
   if (!mentor) {
     throw new ProgressError(404, 'mentor_not_found', 'Active mentor not found');
   }
 
   const customer = await deps.findCustomerByEmail(email);
+  logger?.info('customer_lookup', customer ? 'customer resolved' : 'customer not found');
   if (!customer) {
     throw new ProgressError(404, 'customer_not_found', 'Customer not found');
   }
 
+  logger?.info('item_lookup', 'resolving item by type', { item_type: itemType, item_code: itemCode });
   const item = await findItemByType(itemType, itemCode, deps);
   if (!item) {
     throw new ProgressError(404, 'item_not_found', 'Item not found');
@@ -179,7 +184,16 @@ export async function recordMentorProgress(
     throw new ProgressError(400, 'item_mentor_mismatch', 'Item does not belong to the informed mentor');
   }
 
-  const savedProgress = await saveProgressByType(itemType, customer.id, item.id, item.mentor_id, event, deps, now);
+  const savedProgress = await saveProgressByType(itemType, customer.id, item.id, item.mentor_id, event, deps, now, logger);
+
+  logger?.info('progress_result', 'progress saved', {
+    status: 200,
+    item_type: itemType,
+    item_code: itemCode,
+    event,
+    is_opened: savedProgress.is_opened,
+    is_completed: savedProgress.is_completed
+  });
 
   return {
     mentor_slug: mentor.slug,
@@ -226,11 +240,19 @@ async function saveProgressByType(
   mentorId: string,
   event: ProgressEventType,
   deps: ProgressServiceDeps,
-  now: Date
+  now: Date,
+  logger?: DiagnosticLogger
 ): Promise<ProgressResponseState> {
   if (itemType === 'lesson') {
     const current = await deps.findLessonProgress(customerId, itemId);
     const next = buildLessonProgress(event, current, now);
+    const action = current ? 'update' : 'insert';
+    logger?.info('progress_transition', 'lesson progress transition', {
+      item_type: itemType,
+      previous_status: current?.status ?? null,
+      next_status: next.status,
+      action
+    });
     const saved = current
       ? await deps.updateLessonProgress(itemId, customerId, { mentor_id: mentorId, ...next })
       : await deps.insertLessonProgress(itemId, { customer_id: customerId, mentor_id: mentorId, ...next });
@@ -240,6 +262,13 @@ async function saveProgressByType(
   if (itemType === 'checkpoint') {
     const current = await deps.findCheckpointProgress(customerId, itemId);
     const next = buildCheckpointProgress(event, current, now);
+    const action = current ? 'update' : 'insert';
+    logger?.info('progress_transition', 'checkpoint progress transition', {
+      item_type: itemType,
+      previous_status: current?.status ?? null,
+      next_status: next.status,
+      action
+    });
     const saved = current
       ? await deps.updateCheckpointProgress(itemId, customerId, { mentor_id: mentorId, ...next })
       : await deps.insertCheckpointProgress(itemId, { customer_id: customerId, mentor_id: mentorId, ...next });
@@ -248,6 +277,13 @@ async function saveProgressByType(
 
   const current = await deps.findProjectProgress(customerId, itemId);
   const next = buildProjectProgress(event, current, now);
+  const action = current ? 'update' : 'insert';
+  logger?.info('progress_transition', 'project progress transition', {
+    item_type: itemType,
+    previous_status: current?.status ?? null,
+    next_status: next.status,
+    action
+  });
   const saved = current
     ? await deps.updateProjectProgress(itemId, customerId, { mentor_id: mentorId, ...next })
     : await deps.insertProjectProgress(itemId, { customer_id: customerId, mentor_id: mentorId, ...next });
@@ -369,4 +405,3 @@ function toProjectResponse(progress: ProjectProgressRow): ProgressResponseState 
     completed_at: progress.approved_at
   };
 }
-

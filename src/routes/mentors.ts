@@ -1,6 +1,7 @@
 ﻿import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { validateApiKey } from '../utils/crypto';
+import { createDiagnosticLogger, maskEmail } from '../utils/request-log';
 import {
   CatalogLevelRow,
   CatalogModuleRow,
@@ -40,9 +41,17 @@ export function createMentorsRouter(deps: MentorsRouterDeps = mentorsDeps) {
   const router = Router();
 
   router.get('/:mentorSlug/catalog', async (req: Request, res: Response) => {
+    const logger = createDiagnosticLogger({ method: req.method, endpoint: '/mentors/:mentorSlug/catalog' });
+    logger.info('request_received', 'incoming request', {
+      mentor_slug: req.params.mentorSlug,
+      email: maskEmail(firstQueryValue(normalizeQueryValue(req.query.email))),
+      level: normalizeQueryValue(req.query.level) ?? null
+    });
+
     try {
       const apiKey = req.headers['x-api-key'] as string;
       if (!apiKey || !validateApiKey(apiKey)) {
+        logger.info('auth', 'invalid api key', { status: 401 });
         return res.status(401).json({ error: 'Invalid API key' });
       }
 
@@ -52,27 +61,40 @@ export function createMentorsRouter(deps: MentorsRouterDeps = mentorsDeps) {
           email: normalizeQueryValue(req.query.email),
           level: normalizeQueryValue(req.query.level)
         },
-        deps
+        deps,
+        logger
       );
 
+      logger.info('response', 'returning catalog response', { status: 200, levels: response.levels.length, level_filter: response.level_filter ?? null });
       return res.json(response);
     } catch (error) {
       if (error instanceof CatalogError) {
+        logger.error('catalog_handler', error, { status: error.statusCode, error_code: error.error });
         return res.status(error.statusCode).json({
           error: error.error,
           message: error.message
         });
       }
 
-      console.error('Catalog error:', error);
+      logger.error('catalog_handler', error, { status: 500 });
       return res.status(500).json({ error: 'Internal server error' });
     }
   });
 
   router.post('/:mentorSlug/progress', async (req: Request, res: Response) => {
+    const logger = createDiagnosticLogger({ method: req.method, endpoint: '/mentors/:mentorSlug/progress' });
+    logger.info('request_received', 'incoming request', {
+      mentor_slug: req.params.mentorSlug,
+      email: maskEmail(typeof req.body?.email === 'string' ? req.body.email : undefined),
+      item_type: req.body?.item_type ?? null,
+      item_code: req.body?.item_code ?? null,
+      event: req.body?.event ?? null
+    });
+
     try {
       const apiKey = req.headers['x-api-key'] as string;
       if (!apiKey || !validateApiKey(apiKey)) {
+        logger.info('auth', 'invalid api key', { status: 401 });
         return res.status(401).json({ error: 'Invalid API key' });
       }
 
@@ -84,24 +106,32 @@ export function createMentorsRouter(deps: MentorsRouterDeps = mentorsDeps) {
           item_code: req.body?.item_code,
           event: req.body?.event
         },
-        deps
+        deps,
+        new Date(),
+        logger
       );
 
+      logger.info('response', 'returning progress response', { status: 200, item_type: response.item_type, event: response.event });
       return res.json(response);
     } catch (error) {
       if (error instanceof ProgressError) {
+        logger.error('progress_handler', error, { status: error.statusCode, error_code: error.error });
         return res.status(error.statusCode).json({
           error: error.error,
           message: error.message
         });
       }
 
-      console.error('Progress error:', error);
+      logger.error('progress_handler', error, { status: 500 });
       return res.status(500).json({ error: 'Internal server error' });
     }
   });
 
   return router;
+}
+
+function firstQueryValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function normalizeQueryValue(value: unknown): string | string[] | undefined {
@@ -479,5 +509,7 @@ const mentorsDeps: MentorsRouterDeps = {
 };
 
 export default createMentorsRouter();
+
+
 
 

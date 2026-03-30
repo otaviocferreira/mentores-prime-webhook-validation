@@ -1,4 +1,5 @@
-import { normalizeEmail } from './webhook.service';
+﻿import { normalizeEmail } from './webhook.service';
+import { DiagnosticLogger } from '../utils/request-log';
 
 export const LEVEL_CODE_ALIASES: Record<string, CatalogLevelCode> = {
   ini: 'INI',
@@ -185,7 +186,8 @@ export function normalizeCatalogLevel(level: string | string[] | undefined): Cat
 
 export async function getMentorCatalog(
   params: { mentorSlug: string; email?: string | string[] | undefined; level?: string | string[] | undefined },
-  deps: CatalogServiceDeps
+  deps: CatalogServiceDeps,
+  logger?: DiagnosticLogger
 ): Promise<CatalogResponse> {
   const mentorSlug = params.mentorSlug?.trim();
   if (!mentorSlug) {
@@ -204,17 +206,20 @@ export async function getMentorCatalog(
     throw new CatalogError(400, 'invalid_level', 'Invalid level filter');
   }
 
+  logger?.info('mentor_lookup', 'resolving mentor', { mentor_slug: mentorSlug });
   const mentor = await deps.findActiveMentorBySlug(mentorSlug);
   if (!mentor) {
     throw new CatalogError(404, 'mentor_not_found', 'Active mentor not found');
   }
 
   const customer = await deps.findCustomerByEmail(email);
+  logger?.info('customer_lookup', customer ? 'customer resolved' : 'customer not found');
   if (!customer) {
     throw new CatalogError(404, 'customer_not_found', 'Customer not found');
   }
 
   const levels = await deps.listActiveLevelsByMentorId(mentor.id);
+  logger?.info('level_filter', normalizedLevel ? 'level filter applied' : 'full catalog requested', { level_filter: normalizedLevel ?? null, levels_found: levels.length });
   const selectedLevels = (normalizedLevel ? levels.filter((level) => level.code === normalizedLevel) : levels).sort(
     (a, b) => a.order_index - b.order_index
   );
@@ -245,6 +250,8 @@ export async function getMentorCatalog(
     CatalogCheckpointRow[],
     CatalogProjectRow[]
   ];
+
+  logger?.info('catalog_counts', 'catalog items loaded', { levels: selectedLevels.length, modules: modules.length, lessons: lessons.length, checkpoints: checkpoints.length, projects: projects.length });
 
   validateCatalogIntegrity(selectedLevels, modules, lessons, checkpoints, projects);
 
@@ -341,8 +348,11 @@ export async function getMentorCatalog(
     .filter((level): level is CatalogResponseLevel => level !== null);
 
   if (responseLevels.length === 0) {
+    logger?.info('catalog_result', 'catalog empty after filters', { levels: selectedLevels.length, modules: modules.length });
     throw new CatalogError(404, 'catalog_not_found', 'No published catalog found for this mentor');
   }
+
+  logger?.info('catalog_result', 'catalog ready', { status: 200, levels: responseLevels.length });
 
   return {
     mentor: {
@@ -416,3 +426,4 @@ function validateCatalogIntegrity(
     }
   }
 }
+

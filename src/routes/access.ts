@@ -1,28 +1,50 @@
-import { Router, Request, Response } from 'express';
+﻿import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { validateApiKey } from '../utils/crypto';
 import { validateAccess } from '../services/access.service';
+import { createDiagnosticLogger, maskEmail } from '../utils/request-log';
 
 const router = Router();
 
 router.get('/validate', async (req: Request, res: Response) => {
+  const logger = createDiagnosticLogger({ method: req.method, endpoint: '/access/validate' });
+  const email = normalizeQueryValue(req.query.email);
+  const mentor = normalizeQueryValue(req.query.mentor);
+  const emailValue = Array.isArray(email) ? email[0] : email;
+  const mentorValue = Array.isArray(mentor) ? mentor[0] : mentor;
+
+  logger.info('request_received', 'incoming request', {
+    email: maskEmail(emailValue),
+    mentor: mentorValue ?? null
+  });
+
   try {
     const apiKey = req.headers['x-api-key'] as string;
     if (!apiKey || !validateApiKey(apiKey)) {
+      logger.info('auth', 'invalid api key', { status: 401 });
       return res.status(401).json({ error: 'Invalid API key' });
     }
 
     try {
       const response = await validateAccess(
         {
-          email: normalizeQueryValue(req.query.email),
-          mentor: normalizeQueryValue(req.query.mentor)
+          email,
+          mentor
         },
-        accessDeps
+        accessDeps,
+        new Date(),
+        logger
       );
+
+      logger.info('response', 'returning validate response', {
+        status: 200,
+        allowed: response.allowed,
+        mentor: response.mentor
+      });
       return res.json(response);
     } catch (error: any) {
       if (error.message === 'Missing required parameters') {
+        logger.error('validate_params', error, { status: 400 });
         return res.status(400).json({
           error: 'Missing required parameters',
           required: ['email', 'mentor']
@@ -32,7 +54,7 @@ router.get('/validate', async (req: Request, res: Response) => {
       throw error;
     }
   } catch (error) {
-    console.error('Validation error:', error);
+    logger.error('validate_handler', error, { status: 500 });
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

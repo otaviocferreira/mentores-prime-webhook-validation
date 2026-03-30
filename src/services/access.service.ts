@@ -1,5 +1,6 @@
-import { AccessValidationResponse } from '../types';
+﻿import { AccessValidationResponse } from '../types';
 import { normalizeEmail } from './webhook.service';
+import { DiagnosticLogger } from '../utils/request-log';
 
 export interface CustomerProductAccessRow {
   hotmart_product_id: number;
@@ -35,12 +36,14 @@ export function buildDeniedAccessResponse(mentor: string): AccessValidationRespo
 export async function validateAccess(
   params: AccessValidationParams,
   deps: AccessValidationDeps,
-  now: Date = new Date()
+  now: Date = new Date(),
+  logger?: DiagnosticLogger
 ): Promise<AccessValidationResponse> {
   const emailValue = Array.isArray(params.email) ? params.email[0] : params.email;
   const mentorValue = Array.isArray(params.mentor) ? params.mentor[0] : params.mentor;
 
   if (!emailValue || !mentorValue) {
+    logger?.info('validate_params', 'missing required parameters');
     throw new Error('Missing required parameters');
   }
 
@@ -48,12 +51,18 @@ export async function validateAccess(
   const mentor = mentorValue.toString().trim();
 
   if (!email || !mentor) {
+    logger?.info('validate_params', 'normalized parameters are invalid');
     throw new Error('Missing required parameters');
   }
 
+  logger?.info('validate_start', 'access validation started', { mentor, email_normalized: true });
+
   const customer = await deps.findCustomerByEmail(email);
   if (!customer) {
-    return buildDeniedAccessResponse(mentor);
+    logger?.info('customer_lookup', 'customer not found');
+    const denied = buildDeniedAccessResponse(mentor);
+    logger?.info('validate_result', 'access validation finished', { allowed: denied.allowed, products: denied.products?.length ?? 0 });
+    return denied;
   }
 
   const customerProducts = await deps.listActiveCustomerProducts(customer.id);
@@ -63,7 +72,10 @@ export async function validateAccess(
   });
 
   if (activeProducts.length === 0) {
-    return buildDeniedAccessResponse(mentor);
+    logger?.info('product_lookup', 'no active products available', { customer_products: customerProducts.length });
+    const denied = buildDeniedAccessResponse(mentor);
+    logger?.info('validate_result', 'access validation finished', { allowed: denied.allowed, products: denied.products?.length ?? 0 });
+    return denied;
   }
 
   const activeProductIds = activeProducts.map((customerProduct) => customerProduct.hotmart_product_id);
@@ -86,6 +98,13 @@ export async function validateAccess(
     }
   }
 
+  logger?.info('validate_result', 'access validation finished', {
+    allowed,
+    active_products: activeProducts.length,
+    mapped_products: allowedProductIds.length,
+    mentor
+  });
+
   return {
     allowed,
     mentor,
@@ -95,3 +114,4 @@ export async function validateAccess(
     products: allowedProductIds
   };
 }
+
