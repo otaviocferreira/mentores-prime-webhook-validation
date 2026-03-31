@@ -88,7 +88,9 @@ export function createMentorsRouter(deps: MentorsRouterDeps = mentorsDeps) {
       email: maskEmail(typeof req.body?.email === 'string' ? req.body.email : undefined),
       item_type: req.body?.item_type ?? null,
       item_code: req.body?.item_code ?? null,
-      event: req.body?.event ?? null
+      event: req.body?.event ?? null,
+      evaluator_note_present: typeof req.body?.evaluator_note === 'string' ? req.body.evaluator_note.trim().length > 0 : false,
+      delivery_url_present: typeof req.body?.delivery_url === 'string' ? req.body.delivery_url.trim().length > 0 : false
     });
 
     try {
@@ -104,7 +106,9 @@ export function createMentorsRouter(deps: MentorsRouterDeps = mentorsDeps) {
           email: req.body?.email,
           item_type: req.body?.item_type,
           item_code: req.body?.item_code,
-          event: req.body?.event
+          event: req.body?.event,
+          evaluator_note: req.body?.evaluator_note,
+          delivery_url: req.body?.delivery_url
         },
         deps,
         new Date(),
@@ -509,6 +513,7 @@ const mentorsDeps: MentorsRouterDeps = {
 };
 
 export default createMentorsRouter();
+
 
 
 

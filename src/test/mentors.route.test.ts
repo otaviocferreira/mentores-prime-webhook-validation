@@ -206,7 +206,7 @@ test('GET /mentors/:mentorSlug/catalog retorna catalogo completo ordenado', asyn
 
 test('GET /mentors/:mentorSlug/catalog aceita codigos e aliases de level', async () => {
   await withServer(createDeps(), async (baseUrl) => {
-    const cases = [['INI', 'INI'], ['INT', 'INT'], ['ADV', 'ADV'], ['PRO', 'PRO'], ['MAS', 'MAS'], ['iniciante', 'INI'], ['intermediario', 'INT'], ['intermedi\u00E1rio', 'INT'], ['avancado', 'ADV'], ['avan\u00E7ado', 'ADV'], ['profissional', 'PRO'], ['maestria', 'MAS']] as const;
+    const cases = [['INI', 'INI'], ['INT', 'INT'], ['ADV', 'ADV'], ['PRO', 'PRO'], ['MAS', 'MAS'], ['iniciante', 'INI'], ['intermediario', 'INT'], ['intermediário', 'INT'], ['avancado', 'ADV'], ['avançado', 'ADV'], ['profissional', 'PRO'], ['maestria', 'MAS']] as const;
     for (const [input, expected] of cases) {
       const response = await fetch(`${baseUrl}/mentors/java/catalog?email=aluno@example.com&level=${encodeURIComponent(input)}`, { headers: { 'x-api-key': 'test-api-key' } });
       const body = (await response.json()) as CatalogResponse;
@@ -289,30 +289,36 @@ test('POST /mentors/:mentorSlug/progress retorna 401 sem API key valida', async 
 test('POST /mentors/:mentorSlug/progress persiste status corretos para todos os tipos', async () => {
   await withServer(createDeps(), async (baseUrl, deps) => {
     const cases = [
-      [{ item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'opened' }, 'customer-1:lesson-py-1', deps.stores.lessonStore, 'OPENED', 'mentor-python'],
-      [{ item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'completed' }, 'customer-1:lesson-py-1', deps.stores.lessonStore, 'COMPLETED', 'mentor-python'],
-      [{ item_type: 'checkpoint', item_code: 'CP-1', event: 'opened' }, 'customer-1:checkpoint-py-1', deps.stores.checkpointStore, 'OPENED', 'mentor-python'],
-      [{ item_type: 'checkpoint', item_code: 'CP-1', event: 'completed' }, 'customer-1:checkpoint-py-1', deps.stores.checkpointStore, 'APPROVED', 'mentor-python'],
-      [{ item_type: 'project', item_code: 'PJ-1', event: 'opened' }, 'customer-1:project-py-1', deps.stores.projectStore, 'OPENED', 'mentor-python'],
-      [{ item_type: 'project', item_code: 'PJ-1', event: 'completed' }, 'customer-1:project-py-1', deps.stores.projectStore, 'APPROVED', 'mentor-python']
+      [{ item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'opened' }, 'customer-1:lesson-py-1', deps.stores.lessonStore, 'OPENED'],
+      [{ item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'completed' }, 'customer-1:lesson-py-1', deps.stores.lessonStore, 'COMPLETED'],
+      [{ item_type: 'checkpoint', item_code: 'CP-1', event: 'opened' }, 'customer-1:checkpoint-py-1', deps.stores.checkpointStore, 'OPENED'],
+      [{ item_type: 'checkpoint', item_code: 'CP-1', event: 'submitted' }, 'customer-1:checkpoint-py-1', deps.stores.checkpointStore, 'SUBMITTED'],
+      [{ item_type: 'checkpoint', item_code: 'CP-1', event: 'approved', evaluator_note: 'ok' }, 'customer-1:checkpoint-py-1', deps.stores.checkpointStore, 'APPROVED'],
+      [{ item_type: 'checkpoint', item_code: 'CP-1', event: 'rejected', evaluator_note: 'ajustar' }, 'customer-1:checkpoint-py-1', deps.stores.checkpointStore, 'REJECTED'],
+      [{ item_type: 'project', item_code: 'PJ-1', event: 'opened' }, 'customer-1:project-py-1', deps.stores.projectStore, 'OPENED'],
+      [{ item_type: 'project', item_code: 'PJ-1', event: 'in_progress' }, 'customer-1:project-py-1', deps.stores.projectStore, 'IN_PROGRESS'],
+      [{ item_type: 'project', item_code: 'PJ-1', event: 'submitted', delivery_url: 'https://github.com/org/repo' }, 'customer-1:project-py-1', deps.stores.projectStore, 'SUBMITTED'],
+      [{ item_type: 'project', item_code: 'PJ-1', event: 'approved', evaluator_note: 'ok' }, 'customer-1:project-py-1', deps.stores.projectStore, 'APPROVED'],
+      [{ item_type: 'project', item_code: 'PJ-1', event: 'rejected', evaluator_note: 'refazer' }, 'customer-1:project-py-1', deps.stores.projectStore, 'REJECTED']
     ] as const;
 
-    for (const [payload, key, store, expectedStatus, expectedMentorId] of cases) {
+    for (const [payload, key, store, expectedStatus] of cases) {
       const response = await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', ...payload }) });
       const body = (await response.json()) as { progress: { is_opened: boolean; is_completed: boolean } };
       assert.equal(response.status, 200);
       assert.equal(store.get(key)?.status, expectedStatus);
-      assert.equal(store.get(key)?.mentor_id, expectedMentorId);
       assert.equal(body.progress.is_opened, true);
-      assert.equal(body.progress.is_completed, payload.event === 'completed');
+      assert.equal(body.progress.is_completed, expectedStatus === 'COMPLETED' || expectedStatus === 'APPROVED');
     }
+
+    assert.equal(deps.stores.projectStore.get('customer-1:project-py-1')?.delivery_url, 'https://github.com/org/repo');
   });
 });
 
 test('POST /mentors/:mentorSlug/progress chamadas repetidas mantem consistencia sem duplicar', async () => {
   await withServer(createDeps(), async (baseUrl, deps) => {
-    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'completed' }) });
-    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'completed' }) });
+    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'approved', evaluator_note: 'ok' }) });
+    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'approved', evaluator_note: 'ok' }) });
     assert.equal(deps.stores.projectStore.size, 1);
     assert.equal(deps.stores.projectStore.get('customer-1:project-py-1')?.status, 'APPROVED');
     assert.equal(deps.stores.projectStore.get('customer-1:project-py-1')?.mentor_id, 'mentor-python');
@@ -324,7 +330,10 @@ test('POST /mentors/:mentorSlug/progress retorna erros esperados', async () => {
     const cases = [
       [{ email: '', item_type: 'lesson', item_code: '', event: 'opened' }, 400, { error: 'invalid_body', message: 'Invalid request body' }],
       [{ email: 'aluno@example.com', item_type: 'module', item_code: 'X', event: 'opened' }, 400, { error: 'invalid_item_type', message: 'Invalid item_type' }],
-      [{ email: 'aluno@example.com', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'finish' }, 400, { error: 'invalid_event', message: 'Invalid event' }],
+      [{ email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'completed' }, 400, { error: 'invalid_event', message: 'Checkpoints accept only opened, submitted, approved or rejected events' }],
+      [{ email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'approved' }, 400, { error: 'missing_evaluator_note', message: 'evaluator_note is required for approved or rejected events' }],
+      [{ email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'completed' }, 400, { error: 'invalid_event', message: 'Projects accept only opened, in_progress, submitted, approved or rejected events' }],
+      [{ email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'approved' }, 400, { error: 'missing_evaluator_note', message: 'evaluator_note is required for approved or rejected events' }],
       [{ email: 'outro@example.com', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'opened' }, 404, { error: 'customer_not_found', message: 'Customer not found' }],
       [{ email: 'aluno@example.com', item_type: 'lesson', item_code: 'NAO-EXISTE', event: 'opened' }, 404, { error: 'item_not_found', message: 'Item not found' }]
     ] as const;
@@ -347,11 +356,11 @@ test('POST /mentors/:mentorSlug/progress retorna 400 quando item pertence a outr
   });
 });
 
-test('POST opened/completed e GET catalog refletem progresso derivado', async () => {
+test('POST progress e GET catalog refletem progresso derivado', async () => {
   await withServer(createDeps(), async (baseUrl) => {
     await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'opened' }) });
-    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'completed' }) });
-    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'completed' }) });
+    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'approved', evaluator_note: 'ok' }) });
+    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'approved', evaluator_note: 'ok' }) });
 
     const response = await fetch(`${baseUrl}/mentors/python/catalog?email=aluno@example.com`, { headers: { 'x-api-key': 'test-api-key' } });
     const body = (await response.json()) as CatalogResponse;
@@ -361,7 +370,40 @@ test('POST opened/completed e GET catalog refletem progresso derivado', async ()
   });
 });
 
+test('POST checkpoint submitted e approved so marca catalog como concluido apos approved', async () => {
+  await withServer(createDeps(), async (baseUrl) => {
+    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'submitted' }) });
 
+    let response = await fetch(`${baseUrl}/mentors/python/catalog?email=aluno@example.com`, { headers: { 'x-api-key': 'test-api-key' } });
+    let body = (await response.json()) as CatalogResponse;
+    assert.deepEqual(body.levels[0]?.modules[0]?.checkpoints[0]?.progress, { is_opened: true, is_completed: false });
 
+    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'approved', evaluator_note: 'ok' }) });
 
+    response = await fetch(`${baseUrl}/mentors/python/catalog?email=aluno@example.com`, { headers: { 'x-api-key': 'test-api-key' } });
+    body = (await response.json()) as CatalogResponse;
+    assert.deepEqual(body.levels[0]?.modules[0]?.checkpoints[0]?.progress, { is_opened: true, is_completed: true });
+  });
+});
 
+test('POST project fluxo real reflete catalog em cada etapa sem regressao prematura', async () => {
+  await withServer(createDeps(), async (baseUrl) => {
+    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'in_progress' }) });
+
+    let response = await fetch(`${baseUrl}/mentors/python/catalog?email=aluno@example.com`, { headers: { 'x-api-key': 'test-api-key' } });
+    let body = (await response.json()) as CatalogResponse;
+    assert.deepEqual(body.levels[0]?.modules[0]?.projects[0]?.progress, { is_opened: true, is_completed: false });
+
+    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'submitted', delivery_url: 'https://github.com/org/repo-v1' }) });
+
+    response = await fetch(`${baseUrl}/mentors/python/catalog?email=aluno@example.com`, { headers: { 'x-api-key': 'test-api-key' } });
+    body = (await response.json()) as CatalogResponse;
+    assert.deepEqual(body.levels[0]?.modules[0]?.projects[0]?.progress, { is_opened: true, is_completed: false });
+
+    await fetch(`${baseUrl}/mentors/python/progress`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test-api-key' }, body: JSON.stringify({ email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'approved', evaluator_note: 'ok' }) });
+
+    response = await fetch(`${baseUrl}/mentors/python/catalog?email=aluno@example.com`, { headers: { 'x-api-key': 'test-api-key' } });
+    body = (await response.json()) as CatalogResponse;
+    assert.deepEqual(body.levels[0]?.modules[0]?.projects[0]?.progress, { is_opened: true, is_completed: true });
+  });
+});

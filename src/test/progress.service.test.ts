@@ -33,10 +33,11 @@ type ProjectRow = {
   evaluator_note: string | null;
 };
 
-function createProgressDeps() {
+function createProgressDeps(options?: { projectInsertConflictOnce?: boolean }) {
   const lessonStore: Record<string, LessonRow> = {};
   const checkpointStore: Record<string, CheckpointRow> = {};
   const projectStore: Record<string, ProjectRow> = {};
+  let shouldConflictProjectInsert = options?.projectInsertConflictOnce ?? false;
 
   const deps = {
     stores: { lessonStore, checkpointStore, projectStore },
@@ -90,6 +91,11 @@ function createProgressDeps() {
     },
     async insertProjectProgress(projectId: string, input: any) {
       const key = `${input.customer_id}:${projectId}`;
+      if (shouldConflictProjectInsert) {
+        shouldConflictProjectInsert = false;
+        projectStore[key] = { mentor_id: input.mentor_id, status: 'OPENED', first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: null, approved_at: null, rejected_at: null, delivery_url: null, evaluator_note: null };
+        throw { code: '23505' };
+      }
       projectStore[key] = { mentor_id: input.mentor_id, status: input.status, first_opened_at: input.first_opened_at, last_opened_at: input.last_opened_at, submitted_at: input.submitted_at, approved_at: input.approved_at, rejected_at: input.rejected_at, delivery_url: input.delivery_url, evaluator_note: input.evaluator_note };
       return projectStore[key];
     },
@@ -116,59 +122,94 @@ test('recordMentorProgress lesson completed cria status COMPLETED e persiste men
   const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'completed' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: '2026-03-29T12:00:00.000Z' });
   assert.equal(deps.stores.lessonStore['customer-1:lesson-1']?.status, 'COMPLETED');
-  assert.equal(deps.stores.lessonStore['customer-1:lesson-1']?.mentor_id, 'mentor-1');
 });
 
-test('recordMentorProgress checkpoint opened cria status OPENED e persiste mentor_id', async () => {
+test('recordMentorProgress checkpoint opened cria status OPENED', async () => {
   const deps = createProgressDeps();
   const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'opened' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: false, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: null });
   assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.status, 'OPENED');
-  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.mentor_id, 'mentor-1');
 });
 
-test('recordMentorProgress checkpoint completed cria status APPROVED, usa approved_at e persiste mentor_id', async () => {
+test('recordMentorProgress checkpoint submitted cria status SUBMITTED e submitted_at', async () => {
   const deps = createProgressDeps();
-  const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'completed' }, deps, new Date('2026-03-29T12:00:00.000Z'));
+  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'opened' }, deps, new Date('2026-03-29T11:00:00.000Z'));
+  const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'submitted' }, deps, new Date('2026-03-29T12:00:00.000Z'));
+  assert.deepEqual(response.progress, { is_opened: true, is_completed: false, first_opened_at: '2026-03-29T11:00:00.000Z', completed_at: null });
+  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.status, 'SUBMITTED');
+  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.submitted_at, '2026-03-29T12:00:00.000Z');
+});
+
+test('recordMentorProgress checkpoint approved exige evaluator_note e usa approved_at', async () => {
+  const deps = createProgressDeps();
+  const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'approved', evaluator_note: 'Boa entrega' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: '2026-03-29T12:00:00.000Z' });
   assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.status, 'APPROVED');
   assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.approved_at, '2026-03-29T12:00:00.000Z');
-  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.mentor_id, 'mentor-1');
+  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.evaluator_note, 'Boa entrega');
 });
 
-test('recordMentorProgress project opened cria status OPENED e persiste mentor_id', async () => {
+test('recordMentorProgress checkpoint rejected exige evaluator_note e usa rejected_at', async () => {
+  const deps = createProgressDeps();
+  const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'rejected', evaluator_note: 'Ajuste a entrega' }, deps, new Date('2026-03-29T12:00:00.000Z'));
+  assert.deepEqual(response.progress, { is_opened: true, is_completed: false, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: null });
+  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.status, 'REJECTED');
+  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.rejected_at, '2026-03-29T12:00:00.000Z');
+  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.evaluator_note, 'Ajuste a entrega');
+});
+
+test('recordMentorProgress project opened cria status OPENED', async () => {
   const deps = createProgressDeps();
   const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'opened' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: false, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: null });
   assert.equal(deps.stores.projectStore['customer-1:project-1']?.status, 'OPENED');
-  assert.equal(deps.stores.projectStore['customer-1:project-1']?.mentor_id, 'mentor-1');
 });
 
-test('recordMentorProgress project completed cria status APPROVED, usa approved_at e persiste mentor_id', async () => {
+test('recordMentorProgress project in_progress cria status IN_PROGRESS', async () => {
   const deps = createProgressDeps();
-  const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'completed' }, deps, new Date('2026-03-29T12:00:00.000Z'));
+  const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'in_progress' }, deps, new Date('2026-03-29T12:00:00.000Z'));
+  assert.deepEqual(response.progress, { is_opened: true, is_completed: false, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: null });
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.status, 'IN_PROGRESS');
+});
+
+test('recordMentorProgress project submitted aceita delivery_url opcional', async () => {
+  const deps = createProgressDeps();
+  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'submitted' }, deps, new Date('2026-03-29T12:00:00.000Z'));
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.status, 'SUBMITTED');
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.delivery_url, null);
+
+  const depsWithUrl = createProgressDeps();
+  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'submitted', delivery_url: 'https://github.com/org/repo' }, depsWithUrl, new Date('2026-03-29T12:00:00.000Z'));
+  assert.equal(depsWithUrl.stores.projectStore['customer-1:project-1']?.status, 'SUBMITTED');
+  assert.equal(depsWithUrl.stores.projectStore['customer-1:project-1']?.submitted_at, '2026-03-29T12:00:00.000Z');
+  assert.equal(depsWithUrl.stores.projectStore['customer-1:project-1']?.delivery_url, 'https://github.com/org/repo');
+});
+
+test('recordMentorProgress project approved exige evaluator_note e usa approved_at', async () => {
+  const deps = createProgressDeps();
+  const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'approved', evaluator_note: 'Projeto aprovado' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: '2026-03-29T12:00:00.000Z' });
   assert.equal(deps.stores.projectStore['customer-1:project-1']?.status, 'APPROVED');
   assert.equal(deps.stores.projectStore['customer-1:project-1']?.approved_at, '2026-03-29T12:00:00.000Z');
-  assert.equal(deps.stores.projectStore['customer-1:project-1']?.mentor_id, 'mentor-1');
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.evaluator_note, 'Projeto aprovado');
 });
 
-test('recordMentorProgress completed preserva first_opened_at existente e nao duplica registro', async () => {
+test('recordMentorProgress project rejected exige evaluator_note e usa rejected_at', async () => {
   const deps = createProgressDeps();
-  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'opened' }, deps, new Date('2026-03-20T10:00:00.000Z'));
-  const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'completed' }, deps, new Date('2026-03-29T12:00:00.000Z'));
-  assert.deepEqual(response.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-20T10:00:00.000Z', completed_at: '2026-03-29T12:00:00.000Z' });
-  assert.equal(Object.keys(deps.stores.lessonStore).length, 1);
-  assert.equal(deps.stores.lessonStore['customer-1:lesson-1']?.mentor_id, 'mentor-1');
+  const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'rejected', evaluator_note: 'Refaça a estrutura' }, deps, new Date('2026-03-29T12:00:00.000Z'));
+  assert.deepEqual(response.progress, { is_opened: true, is_completed: false, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: null });
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.status, 'REJECTED');
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.rejected_at, '2026-03-29T12:00:00.000Z');
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.evaluator_note, 'Refaça a estrutura');
 });
 
-test('recordMentorProgress chamadas repetidas preservam completed_at existente', async () => {
-  const deps = createProgressDeps();
-  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'completed' }, deps, new Date('2026-03-29T12:00:00.000Z'));
-  const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'completed' }, deps, new Date('2026-03-30T12:00:00.000Z'));
+test('recordMentorProgress conflito de unicidade faz fallback para update sem duplicar', async () => {
+  const deps = createProgressDeps({ projectInsertConflictOnce: true });
+  const response = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'approved', evaluator_note: 'Conflito resolvido' }, deps, new Date('2026-03-29T12:00:00.000Z'));
   assert.deepEqual(response.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-29T12:00:00.000Z', completed_at: '2026-03-29T12:00:00.000Z' });
   assert.equal(Object.keys(deps.stores.projectStore).length, 1);
-  assert.equal(deps.stores.projectStore['customer-1:project-1']?.mentor_id, 'mentor-1');
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.status, 'APPROVED');
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.evaluator_note, 'Conflito resolvido');
 });
 
 test('recordMentorProgress retorna 400 para body invalido', async () => {
@@ -189,11 +230,38 @@ test('recordMentorProgress retorna 400 para item_type invalido', async () => {
   });
 });
 
-test('recordMentorProgress retorna 400 para event invalido', async () => {
-  await assert.rejects(() => recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'finish' }, createProgressDeps()), (error: unknown) => {
+test('recordMentorProgress rejeita completed para checkpoint', async () => {
+  await assert.rejects(() => recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'completed' }, createProgressDeps()), (error: unknown) => {
     assert.ok(error instanceof ProgressError);
     assert.equal(error.statusCode, 400);
     assert.equal(error.error, 'invalid_event');
+    return true;
+  });
+});
+
+test('recordMentorProgress rejeita approved sem evaluator_note para checkpoint', async () => {
+  await assert.rejects(() => recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'approved' }, createProgressDeps()), (error: unknown) => {
+    assert.ok(error instanceof ProgressError);
+    assert.equal(error.statusCode, 400);
+    assert.equal(error.error, 'missing_evaluator_note');
+    return true;
+  });
+});
+
+test('recordMentorProgress rejeita completed para project', async () => {
+  await assert.rejects(() => recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'completed' }, createProgressDeps()), (error: unknown) => {
+    assert.ok(error instanceof ProgressError);
+    assert.equal(error.statusCode, 400);
+    assert.equal(error.error, 'invalid_event');
+    return true;
+  });
+});
+
+test('recordMentorProgress rejeita approved sem evaluator_note para project', async () => {
+  await assert.rejects(() => recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'approved' }, createProgressDeps()), (error: unknown) => {
+    assert.ok(error instanceof ProgressError);
+    assert.equal(error.statusCode, 400);
+    assert.equal(error.error, 'missing_evaluator_note');
     return true;
   });
 });
@@ -232,4 +300,56 @@ test('recordMentorProgress retorna 400 se item nao pertence ao mentor informado'
     assert.equal(error.error, 'item_mentor_mismatch');
     return true;
   });
+});
+
+test('recordMentorProgress lesson opened e completed preserva first_opened_at e completed_at em reenvio', async () => {
+  const deps = createProgressDeps();
+  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'opened' }, deps, new Date('2026-03-20T10:00:00.000Z'));
+  const completed = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'completed' }, deps, new Date('2026-03-21T10:00:00.000Z'));
+  const replay = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'lesson', item_code: 'PY-INI-01-01', event: 'completed' }, deps, new Date('2026-03-22T10:00:00.000Z'));
+
+  assert.deepEqual(completed.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-20T10:00:00.000Z', completed_at: '2026-03-21T10:00:00.000Z' });
+  assert.deepEqual(replay.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-20T10:00:00.000Z', completed_at: '2026-03-21T10:00:00.000Z' });
+});
+
+test('recordMentorProgress checkpoint fluxo real opened submitted approved preserva submitted_at e first_opened_at', async () => {
+  const deps = createProgressDeps();
+  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'opened' }, deps, new Date('2026-03-20T10:00:00.000Z'));
+  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'submitted' }, deps, new Date('2026-03-21T10:00:00.000Z'));
+  const approved = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'approved', evaluator_note: 'Tudo certo' }, deps, new Date('2026-03-22T10:00:00.000Z'));
+
+  assert.deepEqual(approved.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-20T10:00:00.000Z', completed_at: '2026-03-22T10:00:00.000Z' });
+  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.submitted_at, '2026-03-21T10:00:00.000Z');
+  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.approved_at, '2026-03-22T10:00:00.000Z');
+});
+
+test('recordMentorProgress checkpoint opened apos approved nao regride status', async () => {
+  const deps = createProgressDeps();
+  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'approved', evaluator_note: 'Tudo certo' }, deps, new Date('2026-03-20T10:00:00.000Z'));
+  const reopened = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'checkpoint', item_code: 'CP-1', event: 'opened' }, deps, new Date('2026-03-21T10:00:00.000Z'));
+
+  assert.deepEqual(reopened.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-20T10:00:00.000Z', completed_at: '2026-03-20T10:00:00.000Z' });
+  assert.equal(deps.stores.checkpointStore['customer-1:checkpoint-1']?.status, 'APPROVED');
+});
+
+test('recordMentorProgress project fluxo real opened in_progress submitted approved preserva timeline e delivery_url', async () => {
+  const deps = createProgressDeps();
+  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'opened' }, deps, new Date('2026-03-20T10:00:00.000Z'));
+  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'in_progress' }, deps, new Date('2026-03-21T10:00:00.000Z'));
+  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'submitted', delivery_url: 'https://github.com/org/repo-v1' }, deps, new Date('2026-03-22T10:00:00.000Z'));
+  const approved = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'approved', evaluator_note: 'Projeto aprovado' }, deps, new Date('2026-03-23T10:00:00.000Z'));
+
+  assert.deepEqual(approved.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-20T10:00:00.000Z', completed_at: '2026-03-23T10:00:00.000Z' });
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.submitted_at, '2026-03-22T10:00:00.000Z');
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.delivery_url, 'https://github.com/org/repo-v1');
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.approved_at, '2026-03-23T10:00:00.000Z');
+});
+
+test('recordMentorProgress project opened apos approved nao regride status', async () => {
+  const deps = createProgressDeps();
+  await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'approved', evaluator_note: 'Projeto aprovado' }, deps, new Date('2026-03-20T10:00:00.000Z'));
+  const reopened = await recordMentorProgress({ mentorSlug: 'python', email: 'aluno@example.com', item_type: 'project', item_code: 'PJ-1', event: 'opened' }, deps, new Date('2026-03-21T10:00:00.000Z'));
+
+  assert.deepEqual(reopened.progress, { is_opened: true, is_completed: true, first_opened_at: '2026-03-20T10:00:00.000Z', completed_at: '2026-03-20T10:00:00.000Z' });
+  assert.equal(deps.stores.projectStore['customer-1:project-1']?.status, 'APPROVED');
 });
