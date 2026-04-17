@@ -9,7 +9,7 @@ type LessonRow = { mentor_id: string; status: 'NOT_STARTED' | 'OPENED' | 'IN_PRO
 type CheckpointRow = { mentor_id: string; status: 'NOT_STARTED' | 'OPENED' | 'SUBMITTED' | 'APPROVED' | 'REJECTED'; first_opened_at: string | null; last_opened_at: string | null; submitted_at: string | null; approved_at: string | null; rejected_at: string | null; evaluator_note: string | null };
 type ProjectRow = { mentor_id: string; status: 'NOT_STARTED' | 'OPENED' | 'IN_PROGRESS' | 'SUBMITTED' | 'APPROVED' | 'REJECTED'; first_opened_at: string | null; last_opened_at: string | null; submitted_at: string | null; approved_at: string | null; rejected_at: string | null; delivery_url: string | null; evaluator_note: string | null };
 
-function createDeps(options?: { emptyCatalog?: boolean; brokenCatalog?: boolean; withEmptyNodes?: boolean }): any {
+function createDeps(options?: { emptyCatalog?: boolean; brokenCatalog?: boolean; withEmptyNodes?: boolean; dependenciesAsString?: boolean }): any {
   const lessonStore = new Map<string, LessonRow>();
   const checkpointStore = new Map<string, CheckpointRow>();
   const projectStore = new Map<string, ProjectRow>();
@@ -28,18 +28,33 @@ function createDeps(options?: { emptyCatalog?: boolean; brokenCatalog?: boolean;
   ];
 
   const modules = [
-    { id: 'module-ini-2', level_id: 'level-ini', module_code: 'INI-02', title: 'Sintaxe', order_index: 2 },
-    { id: 'module-ini-1', level_id: 'level-ini', module_code: 'INI-01', title: 'Boas-vindas', order_index: 1 },
-    { id: 'module-int-1', level_id: 'level-int', module_code: 'INT-01', title: 'Colecoes', order_index: 1 },
-    { id: 'module-adv-1', level_id: 'level-adv', module_code: 'ADV-01', title: 'Concorrencia', order_index: 1 },
-    { id: 'module-pro-1', level_id: 'level-pro', module_code: 'PRO-01', title: 'Arquitetura', order_index: 1 },
-    { id: 'module-mas-1', level_id: 'level-mas', module_code: 'MAS-01', title: 'Mentoria', order_index: 1 }
+    { id: 'module-ini-2', level_id: 'level-ini', module_code: 'INI-02', title: 'Sintaxe', order_index: 2, dependencies: null },
+    {
+      id: 'module-ini-1',
+      level_id: 'level-ini',
+      module_code: 'INI-01',
+      title: 'Boas-vindas',
+      order_index: 1,
+      dependencies: options?.dependenciesAsString
+        ? JSON.stringify([
+            { mentor: 'algoritmos', level: 'INTERMEDIARIO', type: 'HARD', scope: 'GLOBAL' },
+            { mentor: 'git', level: 'INICIANTE', type: 'SOFT', scope: 'GLOBAL' }
+          ])
+        : [
+            { mentor: 'algoritmos', level: 'INTERMEDIARIO', type: 'HARD', scope: 'GLOBAL' },
+            { mentor: 'git', level: 'INICIANTE', type: 'SOFT', scope: 'GLOBAL' }
+          ]
+    },
+    { id: 'module-int-1', level_id: 'level-int', module_code: 'INT-01', title: 'Colecoes', order_index: 1, dependencies: null },
+    { id: 'module-adv-1', level_id: 'level-adv', module_code: 'ADV-01', title: 'Concorrencia', order_index: 1, dependencies: null },
+    { id: 'module-pro-1', level_id: 'level-pro', module_code: 'PRO-01', title: 'Arquitetura', order_index: 1, dependencies: null },
+    { id: 'module-mas-1', level_id: 'level-mas', module_code: 'MAS-01', title: 'Mentoria', order_index: 1, dependencies: null }
   ];
 
   if (options?.withEmptyNodes) {
     modules.push(
-      { id: 'module-pro-empty', level_id: 'level-pro', module_code: 'PRO-99', title: 'Vazio', order_index: 99 },
-      { id: 'module-mas-empty', level_id: 'level-mas', module_code: 'MAS-99', title: 'Sem conteudo', order_index: 99 }
+      { id: 'module-pro-empty', level_id: 'level-pro', module_code: 'PRO-99', title: 'Vazio', order_index: 99, dependencies: null },
+      { id: 'module-mas-empty', level_id: 'level-mas', module_code: 'MAS-99', title: 'Sem conteudo', order_index: 99, dependencies: null }
     );
   }
 
@@ -201,6 +216,92 @@ test('GET /mentors/:mentorSlug/catalog retorna catalogo completo ordenado', asyn
     assert.deepEqual(body.levels.map((level) => level.code), ['INI', 'INT', 'ADV', 'PRO', 'MAS']);
     assert.deepEqual(body.levels[0]?.modules.map((module) => module.module_code), ['INI-01', 'INI-02']);
     assert.equal(body.levels[0]?.modules[1]?.lessons[0]?.is_extra, true);
+  });
+});
+
+test('GET /mentors/:mentorSlug/catalog retorna dependencies preenchido e null no JSON', async () => {
+  await withServer(createDeps(), async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/mentors/java/catalog?email=aluno@example.com`, { headers: { 'x-api-key': 'test-api-key' } });
+    const body = (await response.json()) as CatalogResponse & { levels: Array<{ modules: Array<{ dependencies: unknown | null }> }> };
+    const expectedDependencies = [
+      { mentor: 'algoritmos', level: 'INTERMEDIARIO', type: 'HARD', scope: 'GLOBAL' },
+      { mentor: 'git', level: 'INICIANTE', type: 'SOFT', scope: 'GLOBAL' }
+    ];
+    assert.equal(response.status, 200);
+    assert.ok('dependencies' in body.levels[0]!.modules[0]!);
+    assert.equal(typeof body.levels[0]!.modules[0]!.dependencies, 'object');
+    assert.ok(Array.isArray(body.levels[0]!.modules[0]!.dependencies));
+    assert.deepEqual(body.levels[0]!.modules[0]!.dependencies, expectedDependencies);
+    assert.ok('dependencies' in body.levels[0]!.modules[1]!);
+    assert.equal(body.levels[0]!.modules[1]!.dependencies, null);
+  });
+});
+
+test('GET /mentors/:mentorSlug/catalog mantem dependencies como string quando o driver retorna string', async () => {
+  await withServer(createDeps({ dependenciesAsString: true }), async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/mentors/java/catalog?email=aluno@example.com`, { headers: { 'x-api-key': 'test-api-key' } });
+    const body = (await response.json()) as CatalogResponse & { levels: Array<{ modules: Array<{ dependencies: unknown | null }> }> };
+    const expectedDependencies = JSON.stringify([
+      { mentor: 'algoritmos', level: 'INTERMEDIARIO', type: 'HARD', scope: 'GLOBAL' },
+      { mentor: 'git', level: 'INICIANTE', type: 'SOFT', scope: 'GLOBAL' }
+    ]);
+    assert.equal(response.status, 200);
+    assert.ok('dependencies' in body.levels[0]!.modules[0]!);
+    assert.equal(typeof body.levels[0]!.modules[0]!.dependencies, 'string');
+    assert.equal(body.levels[0]!.modules[0]!.dependencies, expectedDependencies);
+  });
+});
+
+test('GET /mentors/:mentorSlug/catalog preserva tipo object e integridade de dependencies com uma dependencia', async () => {
+  const expectedDependencies = [
+    { mentor: 'algoritmos', level: 'INTERMEDIARIO', type: 'HARD', scope: 'GLOBAL' }
+  ];
+  const deps = createDeps();
+  deps.listActiveModulesByMentorId = async (_mentorId: string, levelIds: string[]) => [
+    { id: 'module-ini-1', level_id: 'level-ini', module_code: 'INI-01', title: 'Boas-vindas', order_index: 1, dependencies: expectedDependencies },
+    { id: 'module-ini-2', level_id: 'level-ini', module_code: 'INI-02', title: 'Sintaxe', order_index: 2, dependencies: null },
+    { id: 'module-int-1', level_id: 'level-int', module_code: 'INT-01', title: 'Colecoes', order_index: 1, dependencies: null },
+    { id: 'module-adv-1', level_id: 'level-adv', module_code: 'ADV-01', title: 'Concorrencia', order_index: 1, dependencies: null },
+    { id: 'module-pro-1', level_id: 'level-pro', module_code: 'PRO-01', title: 'Arquitetura', order_index: 1, dependencies: null },
+    { id: 'module-mas-1', level_id: 'level-mas', module_code: 'MAS-01', title: 'Mentoria', order_index: 1, dependencies: null }
+  ].filter((module) => levelIds.includes(module.level_id));
+
+  await withServer(deps, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/mentors/java/catalog?email=aluno@example.com`, { headers: { 'x-api-key': 'test-api-key' } });
+    const body = (await response.json()) as CatalogResponse & { levels: Array<{ modules: Array<{ dependencies: unknown | null }> }> };
+    const module = body.levels[0]!.modules[0]!;
+
+    assert.equal(response.status, 200);
+    assert.ok('dependencies' in module);
+    assert.equal(typeof module.dependencies, 'object');
+    assert.ok(module.dependencies === null || Array.isArray(module.dependencies));
+    assert.deepEqual(module.dependencies, expectedDependencies);
+  });
+});
+
+test('GET /mentors/:mentorSlug/catalog preserva string crua de dependencies simulando retorno do driver', async () => {
+  const fakeDependencies = JSON.stringify([
+    { mentor: 'algoritmos', level: 'INTERMEDIARIO', type: 'HARD', scope: 'GLOBAL' }
+  ]);
+  const deps = createDeps();
+  deps.listActiveModulesByMentorId = async (_mentorId: string, levelIds: string[]) => [
+    { id: 'module-ini-1', level_id: 'level-ini', module_code: 'INI-01', title: 'Boas-vindas', order_index: 1, dependencies: fakeDependencies },
+    { id: 'module-ini-2', level_id: 'level-ini', module_code: 'INI-02', title: 'Sintaxe', order_index: 2, dependencies: null },
+    { id: 'module-int-1', level_id: 'level-int', module_code: 'INT-01', title: 'Colecoes', order_index: 1, dependencies: null },
+    { id: 'module-adv-1', level_id: 'level-adv', module_code: 'ADV-01', title: 'Concorrencia', order_index: 1, dependencies: null },
+    { id: 'module-pro-1', level_id: 'level-pro', module_code: 'PRO-01', title: 'Arquitetura', order_index: 1, dependencies: null },
+    { id: 'module-mas-1', level_id: 'level-mas', module_code: 'MAS-01', title: 'Mentoria', order_index: 1, dependencies: null }
+  ].filter((module) => levelIds.includes(module.level_id));
+
+  await withServer(deps, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/mentors/java/catalog?email=aluno@example.com`, { headers: { 'x-api-key': 'test-api-key' } });
+    const body = (await response.json()) as CatalogResponse & { levels: Array<{ modules: Array<{ dependencies: unknown | null }> }> };
+    const module = body.levels[0]!.modules[0]!;
+
+    assert.equal(response.status, 200);
+    assert.ok('dependencies' in module);
+    assert.equal(typeof module.dependencies, 'string');
+    assert.equal(module.dependencies, fakeDependencies);
   });
 });
 

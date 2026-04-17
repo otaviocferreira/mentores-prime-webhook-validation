@@ -187,7 +187,7 @@ const mentorsDeps: MentorsRouterDeps = {
 
     const { data, error } = await supabase
       .from('mentor_modules')
-      .select('id, level_id, module_code, title, order_index')
+      .select('id, level_id, module_code, title, order_index, dependencies')
       .eq('mentor_id', mentorId)
       .eq('active', true)
       .in('level_id', levelIds)

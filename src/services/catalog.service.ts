@@ -43,6 +43,7 @@ export interface CatalogModuleRow {
   module_code: string;
   title: string;
   order_index: number;
+  dependencies: unknown | null;
 }
 
 export interface CatalogLessonRow {
@@ -134,6 +135,7 @@ export interface CatalogResponseModule {
   module_code: string;
   title: string;
   order_index: number;
+  dependencies: unknown | null;
   lessons: CatalogResponseLesson[];
   checkpoints: CatalogResponseCheckpoint[];
   projects: CatalogResponseProject[];
@@ -324,6 +326,7 @@ export async function getMentorCatalog(
       module_code: module.module_code,
       title: module.title,
       order_index: module.order_index,
+      dependencies: module.dependencies,
       lessons: moduleLessons,
       checkpoints: moduleCheckpoints,
       projects: moduleProjects
