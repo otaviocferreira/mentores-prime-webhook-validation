@@ -305,6 +305,39 @@ test('GET /mentors/:mentorSlug/catalog preserva string crua de dependencies simu
   });
 });
 
+test('GET /mentors/python/catalog retorna dependencies em INI-00 e INI-01', async () => {
+  const expectedDependencies = [
+    { mentor: 'algoritmos', level: 'INTERMEDIARIO', type: 'HARD', scope: 'GLOBAL' },
+    { mentor: 'git', level: 'INICIANTE', type: 'SOFT', scope: 'GLOBAL' }
+  ];
+  const deps = createDeps();
+  deps.listActiveModulesByMentorId = async (_mentorId: string, levelIds: string[]) => [
+    { id: 'module-py-ini-00', level_id: 'level-ini', module_code: 'INI-00', title: 'Fundamentos', order_index: 0, dependencies: expectedDependencies },
+    { id: 'module-py-ini-01', level_id: 'level-ini', module_code: 'INI-01', title: 'Boas-vindas', order_index: 1, dependencies: expectedDependencies }
+  ].filter((module) => levelIds.includes(module.level_id));
+  deps.listPublishedLessonsByMentorId = async (_mentorId: string, levelIds: string[], moduleIds: string[]) => [
+    { id: 'lesson-py-ini-00', mentor_id: 'mentor-python', level_id: 'level-ini', module_id: 'module-py-ini-00', lesson_code: 'PY-INI-00-01', title: 'Primeiros passos', order_index: 1, is_extra: false },
+    { id: 'lesson-py-ini-01', mentor_id: 'mentor-python', level_id: 'level-ini', module_id: 'module-py-ini-01', lesson_code: 'PY-INI-01-01', title: 'Primeira aula Python', order_index: 1, is_extra: false }
+  ].filter((lesson) => levelIds.includes(lesson.level_id) && moduleIds.includes(lesson.module_id));
+  deps.listPublishedCheckpointsByMentorId = async () => [];
+  deps.listPublishedProjectsByMentorId = async () => [];
+
+  await withServer(deps, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/mentors/python/catalog?email=aluno@example.com`, { headers: { 'x-api-key': 'test-api-key' } });
+    const body = (await response.json()) as CatalogResponse & { levels: Array<{ modules: Array<{ module_code: string; dependencies: unknown }> }> };
+    const ini00 = body.levels[0]!.modules.find((module) => module.module_code === 'INI-00');
+    const ini01 = body.levels[0]!.modules.find((module) => module.module_code === 'INI-01');
+
+    assert.equal(response.status, 200);
+    assert.ok(ini00);
+    assert.ok('dependencies' in ini00);
+    assert.deepEqual(ini00.dependencies, expectedDependencies);
+    assert.ok(ini01);
+    assert.ok('dependencies' in ini01);
+    assert.deepEqual(ini01.dependencies, expectedDependencies);
+  });
+});
+
 test('GET /mentors/:mentorSlug/catalog aceita codigos e aliases de level', async () => {
   await withServer(createDeps(), async (baseUrl) => {
     const cases = [['INI', 'INI'], ['INT', 'INT'], ['ADV', 'ADV'], ['PRO', 'PRO'], ['MAS', 'MAS'], ['iniciante', 'INI'], ['intermediario', 'INT'], ['intermediário', 'INT'], ['avancado', 'ADV'], ['avançado', 'ADV'], ['profissional', 'PRO'], ['maestria', 'MAS']] as const;
